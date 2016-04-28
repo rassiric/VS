@@ -1,0 +1,6 @@
+[package]
+name = "prnthead"
+version = "0.1.0"
+authors = ["Ramiz <ramesbahrami@gmail.com>"]
+
+[dependencies]
