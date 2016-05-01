@@ -2,11 +2,12 @@ extern crate mio;
 
 //mod Netserver;
 
-use std::thread;
 use mio::*;
 use std::net::SocketAddr;
 use mio::tcp::*;
 use std::collections::HashMap;
+use std::io::*;
+use std::fs::File;
 
 
 struct Netserver{
@@ -16,24 +17,25 @@ struct Netserver{
 }
 
 #[derive(Debug)]
+#[derive(PartialEq)]
 enum Subsystem {
-    Invalid,
     Printhead,
     Material
 }
 
 struct Printerpart{
     socket: TcpStream,
-    parttype: Subsystem
+    parttype: Subsystem,
+    blueprint: Option<File>
 }
 
 impl Printerpart{
     fn new(mut socket: TcpStream) -> Printerpart{
         let mut buf = [0;1];
-        let mut ptype = Subsystem::Invalid;
+        let mut ptype;
         loop {
             ptype = match socket.try_read(&mut buf) {
-                Err(e) => unreachable!("Error while handshaking with new client"),
+                Err(_) => unreachable!("Error while handshaking with new client"),
                 Ok(None) => continue,
                 Ok(Some(_)) => {
                     match buf[0] {
@@ -48,12 +50,14 @@ impl Printerpart{
         println!("{:?}",ptype);
         Printerpart {
             socket: socket,
-            parttype: ptype
+            parttype: ptype,
+            blueprint: None
         }
     }
 }
 
 const SERVER_TOKEN: Token = Token(0);
+const CLI_TOKEN: Token = Token(1);
 
 impl Handler for Netserver {
 
@@ -71,7 +75,7 @@ impl Handler for Netserver {
                         return;
                     },
                     Ok(None) => unreachable!("Accept has returned 'None'"),
-                    Ok(Some((sock, addr))) => sock
+                    Ok(Some((sock,_))) => sock
                 };
 
                 self.tokencounter += 1;
@@ -81,9 +85,39 @@ impl Handler for Netserver {
                 eventloop.register(&self.clients[&new_token].socket,
                                     new_token, EventSet::readable(),
                                     PollOpt::edge() | PollOpt::oneshot()).unwrap();
-            }
+            },
+            CLI_TOKEN => {
+                let mut input = String::new();
+                stdin().read_line(&mut input).unwrap();
+                match input.trim() {
+                    "p" => {
+                        let mut printhead2use : Option<&mut Printerpart> = None;
+                        for (_, printpart) in self.clients.iter_mut() {
+                            if(printpart.parttype == Subsystem::Printhead
+                                && printpart.blueprint.is_none())
+                            {
+                                printhead2use = Some(printpart);
+                                break;
+                            }
+                        }
+                        if(printhead2use.is_none()) {
+                            println!("Printhead[s] busy");
+                            return;
+                        }
+
+                        print3D(printhead2use.unwrap());
+                    },
+                    "q" => {
+                        eventloop.shutdown();
+                    },
+                    _ => {
+                        println!("Unknown input");
+                    }
+                }
+            },
             token => {
                 let mut client = self.clients.get_mut(&token).unwrap();
+
                 eventloop.reregister(&client.socket, token, EventSet::readable(),
                                       PollOpt::edge() | PollOpt::oneshot()).unwrap();
             }
@@ -91,17 +125,31 @@ impl Handler for Netserver {
     }
 }
 
+fn print3D(printhead : &mut Printerpart) {
 
+    //printhead.blueprint = Some(File::open("modell.3dbp").unwrap());
+    //Read & check Magic number
+    //Read first command
+    //Find printhead network connection
+    //Send first command to printhead
+    //10byte
+    let _ = printhead.socket.write(&[1,42,0,0,0,1,1,1,1]);
+}
+
+fn continue3Dprint() {
+
+}
 
 fn main() {
     println!("VS-Fab 3D Printer Panel - Ramiz Bahrami(736861), Adrian Müller(734922)");
+    println!("Welcome! Your options are: ..."); //TODO
 
     let mut eventloop = EventLoop::new().unwrap();
 
     let address = "0.0.0.0:18000".parse::<SocketAddr>().unwrap();
     let mut server = Netserver {
             socket: TcpListener::bind(&address).unwrap(),
-            tokencounter : 1,
+            tokencounter : 2,
             clients: HashMap::new()
     };
 
@@ -110,6 +158,11 @@ fn main() {
                         EventSet::readable(),
                         PollOpt::edge()).unwrap();
 
+    let stdin = mio::Io::from_raw_fd(0);
+    eventloop.register(&stdin,
+                        CLI_TOKEN,
+                        EventSet::readable(),
+                        PollOpt::level()).unwrap();
 
     eventloop.run(&mut server).unwrap();
 
