@@ -8,7 +8,7 @@ use mio::tcp::*;
 use std::collections::HashMap;
 use std::io::*;
 use std::fs::File;
-
+use std::time::Duration;
 
 struct Netserver{
     socket: TcpListener,
@@ -24,6 +24,7 @@ enum Subsystem {
 }
 
 struct Printerpart{
+    id: usize,
     socket: TcpStream,
     parttype: Subsystem,
     blueprint: Option<File>
@@ -32,7 +33,7 @@ struct Printerpart{
 impl Printerpart{
     fn new(mut socket: TcpStream) -> Printerpart{
         let mut buf = [0;1];
-        let mut ptype;
+        let ptype;
         loop {
             ptype = match socket.try_read(&mut buf) {
                 Err(_) => unreachable!("Error while handshaking with new client"),
@@ -49,6 +50,7 @@ impl Printerpart{
         };
         println!("{:?}",ptype);
         Printerpart {
+            id: 0,
             socket: socket,
             parttype: ptype,
             blueprint: None
@@ -58,6 +60,7 @@ impl Printerpart{
 
 const SERVER_TOKEN: Token = Token(0);
 const CLI_TOKEN: Token = Token(1);
+const PRINT_TIMEOUT_MS : u64 = 10000;
 
 impl Handler for Netserver {
 
@@ -82,6 +85,7 @@ impl Handler for Netserver {
                 let new_token = Token(self.tokencounter);
 
                 self.clients.insert(new_token, Printerpart::new(clientsocket));
+                self.clients.get_mut(&new_token).unwrap().id = self.tokencounter; //inform Printerpart about its ID
                 eventloop.register(&self.clients[&new_token].socket,
                                     new_token, EventSet::readable(),
                                     PollOpt::edge() | PollOpt::oneshot()).unwrap();
@@ -93,19 +97,19 @@ impl Handler for Netserver {
                     "p" => {
                         let mut printhead2use : Option<&mut Printerpart> = None;
                         for (_, printpart) in self.clients.iter_mut() {
-                            if(printpart.parttype == Subsystem::Printhead
-                                && printpart.blueprint.is_none())
+                            if printpart.parttype == Subsystem::Printhead
+                                && printpart.blueprint.is_none()
                             {
                                 printhead2use = Some(printpart);
                                 break;
                             }
                         }
-                        if(printhead2use.is_none()) {
+                        if printhead2use.is_none() {
                             println!("Printhead[s] busy");
                             return;
                         }
 
-                        print3D(printhead2use.unwrap());
+                        print3D(printhead2use.unwrap(), eventloop);
                     },
                     "q" => {
                         eventloop.shutdown();
@@ -123,21 +127,54 @@ impl Handler for Netserver {
             }
         }
     }
+
+    fn timeout(&mut self, eventloop: &mut EventLoop<Netserver>, timeout_token: usize) {
+        println!("Timeout while printing, aborting...");
+        self.clients.get_mut(&Token(timeout_token)).unwrap().blueprint = None;
+    }
 }
 
-fn print3D(printhead : &mut Printerpart) {
+fn print3D(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
+    printhead.blueprint = Some(File::open("modell.3dbp").unwrap());
 
-    //printhead.blueprint = Some(File::open("modell.3dbp").unwrap());
     //Read & check Magic number
-    //Read first command
-    //Find printhead network connection
-    //Send first command to printhead
-    //10byte
-    let _ = printhead.socket.write(&[1,42,0,0,0,1,1,1,1]);
+    let mut magic = [0;4];
+    printhead.blueprint.as_mut().expect("").read_exact(&mut magic).unwrap();
+    for i in 0..4 {
+        if magic[i] != b"RBAM"[i] {
+            unreachable!("Invalid blueprint magic");
+        }
+    }
+    //b vor string macht ascii byte array literal
+
+    continue3Dprint(printhead, eventloop);
 }
 
-fn continue3Dprint() {
+fn continue3Dprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
+    //ToDo: check if currently printing
+    //bei UDP: aktuellen Befehl hier beim printhead speichern, um erneut senden zu können
+    let mut commandid = [0;1];
+    let mut bp = printhead.blueprint.as_mut().expect("No blueprint in progess!");
+    bp.read_exact(&mut commandid).unwrap();
+    printhead.socket.write(&commandid).unwrap();
 
+    match commandid[0] {
+        1 | 2 => { //8byte params
+             let mut params = [0;8];
+             bp.read_exact(&mut params).unwrap();
+             printhead.socket.write(&params).unwrap();
+        },
+        3 => { //16byte params
+            let mut params = [0;16];
+            bp.read_exact(&mut params).unwrap();
+            printhead.socket.write(&params).unwrap();
+        }
+        _ => {
+            unreachable!("Unknown blueprint command");
+        }
+    };;
+
+    eventloop.timeout(printhead.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap();
 }
 
 fn main() {
@@ -165,8 +202,5 @@ fn main() {
                         PollOpt::level()).unwrap();
 
     eventloop.run(&mut server).unwrap();
-
-
-
     println!("ABC");
 }
