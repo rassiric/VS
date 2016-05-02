@@ -27,7 +27,8 @@ struct Printerpart{
     id: usize,
     socket: TcpStream,
     parttype: Subsystem,
-    blueprint: Option<File>
+    blueprint: Option<File>,
+    timeoutid: Option<mio::Timeout>
 }
 
 impl Printerpart{
@@ -53,7 +54,9 @@ impl Printerpart{
             id: 0,
             socket: socket,
             parttype: ptype,
-            blueprint: None
+            blueprint: None,
+            timeoutid: None,
+            matempty: bool
         }
     }
 }
@@ -109,7 +112,7 @@ impl Handler for Netserver {
                             return;
                         }
 
-                        print3D(printhead2use.unwrap(), eventloop);
+                        print3d(printhead2use.unwrap(), eventloop);
                     },
                     "q" => {
                         eventloop.shutdown();
@@ -121,6 +124,27 @@ impl Handler for Netserver {
             },
             token => {
                 let mut client = self.clients.get_mut(&token).unwrap();
+                let mut buf = [0];
+                let result;
+                loop {
+                    result = match client.socket.try_read(&mut buf) {
+                        Err(_) => unreachable!("Error while receiving client data"),
+                        Ok(None) => continue,
+                        Ok(Some(_)) => buf[0]
+                    };
+                    break;
+                };
+                if client.parttype == Subsystem::Printhead {
+                    eventloop.clear_timeout(&client.timeoutid.as_mut().expect("Unexpected printhead message!"));
+                    client.timeoutid = None;
+                    match result {
+                        1 => continue3dprint(client, eventloop),
+                        255 => println!("Printhead problem!"),
+                        _ => unreachable!("Unknown printhead status!")
+                    };
+                } else {
+                    println!("Material container {} is nearly empty, pausing...",token);
+                }
 
                 eventloop.reregister(&client.socket, token, EventSet::readable(),
                                       PollOpt::edge() | PollOpt::oneshot()).unwrap();
@@ -134,7 +158,7 @@ impl Handler for Netserver {
     }
 }
 
-fn print3D(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
+fn print3d(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
     printhead.blueprint = Some(File::open("modell.3dbp").unwrap());
 
     //Read & check Magic number
@@ -147,15 +171,24 @@ fn print3D(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
     }
     //b vor string macht ascii byte array literal
 
-    continue3Dprint(printhead, eventloop);
+    continue3dprint(printhead, eventloop);
 }
 
-fn continue3Dprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
+fn continue3dprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
     //ToDo: check if currently printing
     //bei UDP: aktuellen Befehl hier beim printhead speichern, um erneut senden zu können
     let mut commandid = [0;1];
+
+    match printhead.blueprint.as_mut().expect("No blueprint in progess!").read_exact(&mut commandid) {
+        Err(_) => {
+            println!("Blueprint finished!");
+            printhead.blueprint = None;
+            return
+        },
+        _ => {}
+    }
     let mut bp = printhead.blueprint.as_mut().expect("No blueprint in progess!");
-    bp.read_exact(&mut commandid).unwrap();
+
     printhead.socket.write(&commandid).unwrap();
 
     match commandid[0] {
@@ -174,7 +207,7 @@ fn continue3Dprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netse
         }
     };;
 
-    eventloop.timeout(printhead.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap();
+    printhead.timeoutid = Some(eventloop.timeout(printhead.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
 }
 
 fn main() {
