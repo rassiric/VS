@@ -138,6 +138,7 @@ impl Handler for Netserver {
                 }
             },
             token => {
+                let mat_available = self.check_mat_status();
                 let mut client = self.clients.get_mut(&token).unwrap();
                 let mut buf = [0];
                 let result;
@@ -154,7 +155,12 @@ impl Handler for Netserver {
                     client.timeoutid = None;
                     match result {
                         1 => {
-                            continue3dprint(client, eventloop);
+                            if mat_available {
+                                continue3dprint(client, eventloop);
+                            }
+                            else {
+                                println!("Pausing print until material is refilled");
+                            }
                         },
                         255 => {
                             println!("Printhead problem, aborting print");

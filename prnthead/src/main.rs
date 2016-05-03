@@ -7,7 +7,7 @@ use rand::distributions::*;
 use rand::Rng;
 
 fn execute_cmd(stream : &mut TcpStream, cmd : u8) -> Result<(), &'static str> {
-    match(cmd) {
+    match cmd  {
         1 => { //Matlevel
             let mut parambuf = [0;8]; // 2 * 4 byte Parameter
             match stream.read_exact(&mut parambuf) {
@@ -47,8 +47,10 @@ fn execute_cmd(stream : &mut TcpStream, cmd : u8) -> Result<(), &'static str> {
             let endy : i32 = (parambuf[12] as i32) | ((parambuf[13] as i32) << 8) |
                 ((parambuf[14] as i32) << 16) | ((parambuf[15] as i32) << 24);
             print!("Print line from ({}, {}) to ({}, {})",startx,starty,endx,endy);
+            std::thread::sleep(std::time::Duration::from_millis(3000));
         }
         _ => {
+            println!("Unknown blueprint command {} received!", cmd);
             return Err("Unknown blueprint command received!");
         }
     }
