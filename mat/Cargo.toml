@@ -1,6 +1,6 @@
 [package]
 name = "mat"
 version = "0.1.0"
-authors = ["Ramiz <ramesbahrami@gmail.com>"]
+authors = ["Ramiz Bahrami <ramesbahrami@gmail.com>", "Adrian Müller <adrian@mueller-lindenfels.de>"]
 
 [dependencies]

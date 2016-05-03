@@ -1,7 +1,5 @@
 extern crate mio;
 
-//mod Netserver;
-
 use mio::*;
 use std::net::SocketAddr;
 use mio::tcp::*;
@@ -10,10 +8,16 @@ use std::io::*;
 use std::fs::File;
 use std::time::Duration;
 
+const SERVER_TOKEN: Token = Token(0);
+const CLI_TOKEN: Token = Token(1);
+const PRINT_TIMEOUT_MS : u64 = 10000;
+const CONTINUE_DELAY_MS : u64 = 1000;
+
 struct Netserver{
     socket: TcpListener,
     clients: HashMap<Token, Printerpart>,
-    tokencounter: usize
+    tokencounter: usize,
+    continuedelay: Option<mio::Timeout>
 }
 
 #[derive(Debug)]
@@ -23,15 +27,16 @@ enum Subsystem {
     Material
 }
 
-struct Printerpart{
+struct Printerpart {
     id: usize,
     socket: TcpStream,
     parttype: Subsystem,
     blueprint: Option<File>,
-    timeoutid: Option<mio::Timeout>
+    timeoutid: Option<mio::Timeout>,
+    matempty: bool
 }
 
-impl Printerpart{
+impl Printerpart {
     fn new(mut socket: TcpStream) -> Printerpart{
         let mut buf = [0;1];
         let ptype;
@@ -56,17 +61,23 @@ impl Printerpart{
             parttype: ptype,
             blueprint: None,
             timeoutid: None,
-            matempty: bool
+            matempty: false
         }
     }
 }
 
-const SERVER_TOKEN: Token = Token(0);
-const CLI_TOKEN: Token = Token(1);
-const PRINT_TIMEOUT_MS : u64 = 10000;
+impl Netserver {
+    fn check_mat_status(&self) -> bool {
+        for part in self.clients.values() {
+            if part.parttype == Subsystem::Material && part.matempty {
+                return false;
+            }
+        }
+        return true;
+    }
+}
 
 impl Handler for Netserver {
-
     type Timeout = usize;
     type Message = ();
 
@@ -91,7 +102,7 @@ impl Handler for Netserver {
                 self.clients.get_mut(&new_token).unwrap().id = self.tokencounter; //inform Printerpart about its ID
                 eventloop.register(&self.clients[&new_token].socket,
                                     new_token, EventSet::readable(),
-                                    PollOpt::edge() | PollOpt::oneshot()).unwrap();
+                                    PollOpt::edge()).unwrap();
             },
             CLI_TOKEN => {
                 let mut input = String::new();
@@ -99,6 +110,11 @@ impl Handler for Netserver {
                 match input.trim() {
                     "p" => {
                         let mut printhead2use : Option<&mut Printerpart> = None;
+                        if !self.check_mat_status() {
+                            println!("Job discarded: Please refill material containers first!");
+                            return;
+                        }
+
                         for (_, printpart) in self.clients.iter_mut() {
                             if printpart.parttype == Subsystem::Printhead
                                 && printpart.blueprint.is_none()
@@ -111,7 +127,6 @@ impl Handler for Netserver {
                             println!("Printhead[s] busy");
                             return;
                         }
-
                         print3d(printhead2use.unwrap(), eventloop);
                     },
                     "q" => {
@@ -138,23 +153,59 @@ impl Handler for Netserver {
                     eventloop.clear_timeout(&client.timeoutid.as_mut().expect("Unexpected printhead message!"));
                     client.timeoutid = None;
                     match result {
-                        1 => continue3dprint(client, eventloop),
-                        255 => println!("Printhead problem!"),
+                        1 => {
+                            continue3dprint(client, eventloop);
+                        },
+                        255 => {
+                            println!("Printhead problem, aborting print");
+                            client.blueprint = None;
+                        },
                         _ => unreachable!("Unknown printhead status!")
                     };
                 } else {
-                    println!("Material container {} is nearly empty, pausing...",token);
+                    match result {
+                        255 => {
+                            println!("Material container {} is nearly empty, pausing...",token.as_usize());
+                            client.matempty = true;
+                        },
+                        1 => {
+                            println!("Material container {} refilled",token.as_usize());
+                            client.matempty = false;
+                            if self.continuedelay.is_some() {
+                                eventloop.clear_timeout(self.continuedelay.as_mut().expect(""));
+                            }
+                            self.continuedelay = Some(eventloop.timeout(0,
+                                Duration::from_millis(CONTINUE_DELAY_MS)).unwrap());
+                        },
+                        _ => unreachable!("Unknown material status!")
+                    }
                 }
-
-                eventloop.reregister(&client.socket, token, EventSet::readable(),
-                                      PollOpt::edge() | PollOpt::oneshot()).unwrap();
             }
         }
     }
 
     fn timeout(&mut self, eventloop: &mut EventLoop<Netserver>, timeout_token: usize) {
-        println!("Timeout while printing, aborting...");
-        self.clients.get_mut(&Token(timeout_token)).unwrap().blueprint = None;
+        match(timeout_token) {
+            0 => { //Timeout id 0 is check for continue
+                if self.check_mat_status() {
+                    println!("All material containers refilled!");
+                    for (_, printerpart) in self.clients.iter_mut() {
+                        if printerpart.parttype == Subsystem::Printhead &&
+                            printerpart.blueprint.is_some() {
+                            println!("Continuing on printhead {}", printerpart.id );
+                            continue3dprint(printerpart, eventloop);
+                        }
+                    }
+                }
+                else {
+                    println!("Still missing material...");
+                }
+            }
+            _ => {
+                println!("Timeout while printing, aborting...");
+                self.clients.get_mut(&Token(timeout_token)).unwrap().blueprint = None;
+            }
+        };
     }
 }
 
@@ -220,7 +271,8 @@ fn main() {
     let mut server = Netserver {
             socket: TcpListener::bind(&address).unwrap(),
             tokencounter : 2,
-            clients: HashMap::new()
+            clients: HashMap::new(),
+            continuedelay: None
     };
 
     eventloop.register(&server.socket,
