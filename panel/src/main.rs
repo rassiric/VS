@@ -33,7 +33,8 @@ struct Printerpart {
     parttype: Subsystem,
     blueprint: Option<File>,
     timeoutid: Option<mio::Timeout>,
-    matempty: bool
+    matempty: bool,
+    matid: i32
 }
 
 impl Printerpart {
@@ -46,9 +47,9 @@ impl Printerpart {
                 Ok(None) => continue,
                 Ok(Some(_)) => {
                     match buf[0] {
+                        0 => unreachable!("Sth tried to register as an invalid printerpart!"),
                         1 => Subsystem::Printhead,
-                        2 => Subsystem::Material,
-                        _ => unreachable!("Error while handshaking with new client")
+                        _ => Subsystem::Material
                     }
                 }
             };
@@ -61,7 +62,8 @@ impl Printerpart {
             parttype: ptype,
             blueprint: None,
             timeoutid: None,
-            matempty: false
+            matempty: false,
+            matid: (buf[0] as i32) - 2
         }
     }
 }
@@ -123,11 +125,15 @@ impl Handler for Netserver {
                                 break;
                             }
                         }
+
                         if printhead2use.is_none() {
                             println!("Printhead[s] busy");
                             return;
                         }
-                        print3d(printhead2use.unwrap(), eventloop);
+
+                        load_blueprint(printhead2use.as_mut().expect(""), eventloop);
+
+                        continue3dprint(printhead2use.as_mut().expect(""), eventloop);
                     },
                     "q" => {
                         eventloop.shutdown();
@@ -139,72 +145,116 @@ impl Handler for Netserver {
             },
             token => {
                 let mat_available = self.check_mat_status();
-                let mut client = self.clients.get_mut(&token).unwrap();
-                let mut buf = [0];
-                let result;
-                loop {
-                    result = match client.socket.try_read(&mut buf) {
-                        Err(_) => unreachable!("Error while receiving client data"),
-                        Ok(None) => continue,
-                        Ok(Some(_)) => buf[0]
+
+                let mut matreq : u8 = 0;
+                let mut matid :i32;
+                {
+                    let mut client = self.clients.get_mut(&token).unwrap();
+                    let mut buf = [0];
+                    matid = client.matid;
+                    let result;
+                    loop {
+                        result = match client.socket.try_read(&mut buf) {
+                            Err(_) => unreachable!("Error while receiving client data"),
+                            Ok(None) => continue,
+                            Ok(Some(_)) => buf[0]
+                        };
+                        break;
                     };
-                    break;
-                };
-                if client.parttype == Subsystem::Printhead {
-                    eventloop.clear_timeout(&client.timeoutid.as_mut().expect("Unexpected printhead message!"));
-                    client.timeoutid = None;
-                    match result {
-                        1 => {
-                            if mat_available {
-                                continue3dprint(client, eventloop);
-                            }
-                            else {
-                                println!("Pausing print until material is refilled");
-                            }
-                        },
-                        255 => {
-                            println!("Printhead problem, aborting print");
-                            client.blueprint = None;
-                        },
-                        _ => unreachable!("Unknown printhead status!")
-                    };
-                } else {
-                    match result {
-                        255 => {
-                            println!("Material container {} is nearly empty, pausing...",token.as_usize());
-                            client.matempty = true;
-                        },
-                        1 => {
-                            println!("Material container {} refilled",token.as_usize());
-                            client.matempty = false;
-                            if self.continuedelay.is_some() {
-                                eventloop.clear_timeout(self.continuedelay.as_mut().expect(""));
-                            }
-                            self.continuedelay = Some(eventloop.timeout(0,
-                                Duration::from_millis(CONTINUE_DELAY_MS)).unwrap());
-                        },
-                        _ => unreachable!("Unknown material status!")
+                    if client.parttype == Subsystem::Printhead {
+                        eventloop.clear_timeout(&client.timeoutid.as_mut().expect("Unexpected printhead message!"));
+                        client.timeoutid = None;
+                        matid = client.matid;
+                        matreq = match result {
+                            1 => {
+                                if mat_available {
+                                    continue3dprint(client, eventloop)
+                                }
+                                else {
+                                    println!("Pausing print until material is refilled");
+                                    0
+                                }
+                            },
+                            255 => {
+                                println!("Printhead problem, aborting print");
+                                client.blueprint = None;
+                                0
+                            },
+                            _ => unreachable!("Unknown printhead status!")
+                        };
+                    } else {
+                        match result {
+                            255 => {
+                                println!("Material container {} is nearly empty, pausing...",client.matid);
+                                client.matempty = true;
+                            },
+                            1 => {
+                                println!("Material container {} refilled",client.matid);
+                                client.matempty = false;
+                                if self.continuedelay.is_some() {
+                                    eventloop.clear_timeout(self.continuedelay.as_mut().expect(""));
+                                }
+                                self.continuedelay = Some(eventloop.timeout(0,
+                                    Duration::from_millis(CONTINUE_DELAY_MS)).unwrap());
+                            },
+                            _ => unreachable!("Unknown material status!")
+                        }
                     }
+                }
+                if matreq > 0 {
+                    let mut matcontainer : Option<&mut Printerpart> = None;
+                    for (_, printpart) in self.clients.iter_mut() {
+                        if printpart.parttype == Subsystem::Material
+                            && printpart.matid == matid
+                        {
+                            matcontainer = Some(printpart);
+                            break;
+                        }
+                    }
+                    if matcontainer.is_none() {
+                        unreachable!("Material not available!");
+                    }
+                    matcontainer.unwrap().socket.write(&[matreq]);
                 }
             }
         }
     }
 
     fn timeout(&mut self, eventloop: &mut EventLoop<Netserver>, timeout_token: usize) {
-        match(timeout_token) {
+        match timeout_token {
             0 => { //Timeout id 0 is check for continue
+                let mut matreq :u8 = 0;
+                let mut matid :u8 =0;
                 if self.check_mat_status() {
                     println!("All material containers refilled!");
                     for (_, printerpart) in self.clients.iter_mut() {
                         if printerpart.parttype == Subsystem::Printhead &&
                             printerpart.blueprint.is_some() {
+
                             println!("Continuing on printhead {}", printerpart.id );
-                            continue3dprint(printerpart, eventloop);
+                            matreq = continue3dprint(printerpart, eventloop);
+                            matid = printerpart.matid as u8;
+                            break;
                         }
                     }
                 }
                 else {
                     println!("Still missing material...");
+                }
+                if(matreq > 0) {
+                    let mut matcontainer : Option<&mut Printerpart> = None;
+                    for (_, printpart) in self.clients.iter_mut() {
+                        if printpart.parttype == Subsystem::Material
+                            && printpart.matid == matid as i32
+                        {
+                            matcontainer = Some(printpart);
+                            break;
+                        }
+                    }
+                    if matcontainer.is_none() {
+                        unreachable!("Material not available!");
+                    }
+                    matcontainer.unwrap().socket.write(&[matreq]);
                 }
             }
             _ => {
@@ -215,7 +265,7 @@ impl Handler for Netserver {
     }
 }
 
-fn print3d(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
+fn load_blueprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
     printhead.blueprint = Some(File::open("modell.3dbp").unwrap());
 
     //Read & check Magic number
@@ -227,11 +277,9 @@ fn print3d(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
         }
     }
     //b vor string macht ascii byte array literal
-
-    continue3dprint(printhead, eventloop);
 }
 
-fn continue3dprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
+fn continue3dprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) -> u8{
     //ToDo: check if currently printing
     //bei UDP: aktuellen Befehl hier beim printhead speichern, um erneut senden zu können
     let mut commandid = [0;1];
@@ -240,7 +288,7 @@ fn continue3dprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netse
         Err(_) => {
             println!("Blueprint finished!");
             printhead.blueprint = None;
-            return
+            return 0
         },
         _ => {}
     }
@@ -248,23 +296,33 @@ fn continue3dprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netse
 
     printhead.socket.write(&commandid).unwrap();
 
-    match commandid[0] {
-        1 | 2 => { //8byte params
+    let matreq = match commandid[0] {
+        1 => { //5byte params
+             let mut params = [0;5];
+             bp.read_exact(&mut params).unwrap();
+             printhead.matid = params[4] as i32; //New material will be taken from container with id
+             printhead.socket.write(&params).unwrap();
+             0
+        },
+        2 => { //8byte params
              let mut params = [0;8];
              bp.read_exact(&mut params).unwrap();
              printhead.socket.write(&params).unwrap();
+             1//A dot takes 1 material unit
         },
         3 => { //16byte params
             let mut params = [0;16];
             bp.read_exact(&mut params).unwrap();
             printhead.socket.write(&params).unwrap();
+            2//A line takes 2 material units
         }
         _ => {
             unreachable!("Unknown blueprint command");
         }
-    };;
+    };
 
     printhead.timeoutid = Some(eventloop.timeout(printhead.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
+    return matreq;
 }
 
 fn main() {

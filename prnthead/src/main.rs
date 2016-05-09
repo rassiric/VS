@@ -16,8 +16,7 @@ fn execute_cmd(stream : &mut TcpStream, cmd : u8) -> Result<(), &'static str> {
             }
             let zcoor : i32 = (parambuf[0] as i32) | ((parambuf[1] as i32) << 8) |
                 ((parambuf[2] as i32) << 16) | ((parambuf[3] as i32) << 24);
-            let matid : i32 = (parambuf[4] as i32) | ((parambuf[5] as i32) << 8) |
-                ((parambuf[6] as i32) << 16) | ((parambuf[7] as i32) << 24);
+            let matid : i32 = (parambuf[4] as i32);
             print!("Going to level:{}; using material:{}",zcoor,matid);
         }
         2 => { //Single dot
