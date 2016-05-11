@@ -9,7 +9,7 @@ use rand::Rng;
 fn execute_cmd(stream : &mut TcpStream, cmd : u8) -> Result<(), &'static str> {
     match cmd  {
         1 => { //Matlevel
-            let mut parambuf = [0;8]; // 2 * 4 byte Parameter
+            let mut parambuf = [0;5]; // 4, 1 byte Parameter
             match stream.read_exact(&mut parambuf) {
                 Err(_) => return Err("Cannot receive matlevel parameters!"),
                 Ok(_) => {}

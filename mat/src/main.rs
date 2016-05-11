@@ -5,7 +5,7 @@ use std::io::stdin;
 const matid : u8 = 0;
 
 fn main() {
-    let mut level = 20;
+    let mut level = 10;
     let mut stream = TcpStream::connect("127.0.0.1:18000").unwrap();
     stream.write(&[(2+matid)]).unwrap(); //Register as material
 
@@ -19,12 +19,15 @@ fn main() {
             }
         }
         level -= usebuf[0]; //material abziehen
+        println!("Matlevel: {}", level);
         if(level > 2) {
             continue;
         }
+        println!("Nearly empty, halting!", );
 
         let _ = stream.write(&[255]); //notify nearly empty
         stdin().read_line(&mut input).unwrap(); //wait till enter to reset
+        level = 20;
         let _ = stream.write(&[1]); //notify nearly empty
     }
 

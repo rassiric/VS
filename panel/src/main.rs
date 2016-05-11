@@ -1,4 +1,5 @@
 extern crate mio;
+extern crate time;
 
 use mio::*;
 use std::net::SocketAddr;
@@ -12,6 +13,8 @@ const SERVER_TOKEN: Token = Token(0);
 const CLI_TOKEN: Token = Token(1);
 const PRINT_TIMEOUT_MS : u64 = 10000;
 const CONTINUE_DELAY_MS : u64 = 1000;
+
+static mut BenchWatchStopTime : u64 = 0;
 
 struct Netserver{
     socket: TcpListener,
@@ -34,7 +37,8 @@ struct Printerpart {
     blueprint: Option<File>,
     timeoutid: Option<mio::Timeout>,
     matempty: bool,
-    matid: i32
+    matid: i32,
+    benchmarkcnt: i32
 }
 
 impl Printerpart {
@@ -63,7 +67,8 @@ impl Printerpart {
             blueprint: None,
             timeoutid: None,
             matempty: false,
-            matid: (buf[0] as i32) - 2
+            matid: (buf[0] as i32) - 2,
+            benchmarkcnt: 0
         }
     }
 }
@@ -111,11 +116,58 @@ impl Handler for Netserver {
                 stdin().read_line(&mut input).unwrap();
                 match input.trim() {
                     "p" => {
-                        let mut printhead2use : Option<&mut Printerpart> = None;
-                        if !self.check_mat_status() {
-                            println!("Job discarded: Please refill material containers first!");
-                            return;
+                        let mut matreq : u8 = 0;
+                        let mut matid : i32;
+
+                        {
+                            let mut printhead2use : Option<&mut Printerpart> = None;
+                            if !self.check_mat_status() {
+                                println!("Job discarded: Please refill material containers first!");
+                                return;
+                            }
+
+                            for (_, printpart) in self.clients.iter_mut() {
+                                if printpart.parttype == Subsystem::Printhead
+                                    && printpart.blueprint.is_none()
+                                {
+                                    printhead2use = Some(printpart);
+                                    break;
+                                }
+                            }
+
+                            match printhead2use {
+                                None => {
+                                    println!("Printhead[s] busy");
+                                    return;
+                                },
+                                Some(mut prntHead) => {
+                                    println!("Sending job to printhead({})", prntHead.id);
+                                    load_blueprint(prntHead, eventloop);
+
+                                    matid = prntHead.matid;
+                                    matreq = continue3dprint(prntHead, eventloop);
+                                }
+                            }
+
                         }
+                        if matreq > 0 {
+                            let mut matcontainer : Option<&mut Printerpart> = None;
+                            for (_, printpart) in self.clients.iter_mut() {
+                                if printpart.parttype == Subsystem::Material
+                                    && printpart.matid == matid
+                                {
+                                    matcontainer = Some(printpart);
+                                    break;
+                                }
+                            }
+                            if matcontainer.is_none() {
+                                unreachable!("Material not available!");
+                            }
+                            matcontainer.unwrap().socket.write(&[matreq]);
+                        }
+                    },
+                    "b" => {
+                        let mut printhead2use : Option<&mut Printerpart> = None;
 
                         for (_, printpart) in self.clients.iter_mut() {
                             if printpart.parttype == Subsystem::Printhead
@@ -126,15 +178,20 @@ impl Handler for Netserver {
                             }
                         }
 
-                        if printhead2use.is_none() {
-                            println!("Printhead[s] busy");
-                            return;
+                        match printhead2use {
+                            None => {
+                                println!("Printhead[s] busy");
+                                return;
+                            },
+                            Some(mut prntHead) => {
+                                println!("Benchmarking printhead({})", prntHead.id);
+                                prntHead.benchmarkcnt = 10000;
+                                unsafe{BenchWatchStopTime = time::precise_time_ns();}
+                                prntHead.socket.write(&[1,57,5,0,0,0]);
+                                prntHead.timeoutid = Some(eventloop.timeout(prntHead.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
+                            }
                         }
-
-                        load_blueprint(printhead2use.as_mut().expect(""), eventloop);
-
-                        continue3dprint(printhead2use.as_mut().expect(""), eventloop);
-                    },
+                    }
                     "q" => {
                         eventloop.shutdown();
                     },
@@ -165,6 +222,17 @@ impl Handler for Netserver {
                         eventloop.clear_timeout(&client.timeoutid.as_mut().expect("Unexpected printhead message!"));
                         client.timeoutid = None;
                         matid = client.matid;
+                        if client.benchmarkcnt > 0 {
+                            client.benchmarkcnt -= 1;
+                            if client.benchmarkcnt == 0 {
+                                unsafe{println!("Benchmark finished, time: {}ms",
+                                    ((time::precise_time_ns() - BenchWatchStopTime) as f32)/1000000.0);}
+                                return;
+                            }
+                            client.socket.write(&[1,57,5,0,0,0]);
+                            client.timeoutid = Some(eventloop.timeout(client.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
+                            return;
+                        }
                         matreq = match result {
                             1 => {
                                 if mat_available {
@@ -234,14 +302,13 @@ impl Handler for Netserver {
                             println!("Continuing on printhead {}", printerpart.id );
                             matreq = continue3dprint(printerpart, eventloop);
                             matid = printerpart.matid as u8;
-                            break;
                         }
                     }
                 }
                 else {
                     println!("Still missing material...");
                 }
-                if(matreq > 0) {
+                if matreq > 0 {
                     let mut matcontainer : Option<&mut Printerpart> = None;
                     for (_, printpart) in self.clients.iter_mut() {
                         if printpart.parttype == Subsystem::Material
@@ -259,7 +326,9 @@ impl Handler for Netserver {
             }
             _ => {
                 println!("Timeout while printing, aborting...");
-                self.clients.get_mut(&Token(timeout_token)).unwrap().blueprint = None;
+                let mut connection = self.clients.get_mut(&Token(timeout_token)).unwrap();
+                connection.blueprint = None; //Abort print process
+                connection.benchmarkcnt = 0; //Abort benchmark process
             }
         };
     }
@@ -282,7 +351,7 @@ fn load_blueprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netser
 fn continue3dprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) -> u8{
     //ToDo: check if currently printing
     //bei UDP: aktuellen Befehl hier beim printhead speichern, um erneut senden zu können
-    let mut commandid = [0;1];
+    let mut commandid = [0];
 
     match printhead.blueprint.as_mut().expect("No blueprint in progess!").read_exact(&mut commandid) {
         Err(_) => {
@@ -297,20 +366,20 @@ fn continue3dprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netse
     printhead.socket.write(&commandid).unwrap();
 
     let matreq = match commandid[0] {
-        1 => { //5byte params
+        1 => { //Choose level & mat, 4+1=5byte params
              let mut params = [0;5];
              bp.read_exact(&mut params).unwrap();
              printhead.matid = params[4] as i32; //New material will be taken from container with id
              printhead.socket.write(&params).unwrap();
              0
         },
-        2 => { //8byte params
+        2 => { //Print dot, 2*4=8 byte params
              let mut params = [0;8];
              bp.read_exact(&mut params).unwrap();
-             printhead.socket.write(&params).unwrap();
+             printhead.socket.write(&   params).unwrap();
              1//A dot takes 1 material unit
         },
-        3 => { //16byte params
+        3 => { //Print line, 4*4=16byte params
             let mut params = [0;16];
             bp.read_exact(&mut params).unwrap();
             printhead.socket.write(&params).unwrap();
@@ -351,5 +420,5 @@ fn main() {
                         PollOpt::level()).unwrap();
 
     eventloop.run(&mut server).unwrap();
-    println!("ABC");
+    println!("Job's done!");
 }
