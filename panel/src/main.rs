@@ -3,7 +3,7 @@ extern crate time;
 
 use mio::*;
 use std::net::SocketAddr;
-use mio::tcp::*;
+use mio::udp::*;
 use std::collections::HashMap;
 use std::io::*;
 use std::fs::File;
@@ -17,7 +17,7 @@ const CONTINUE_DELAY_MS : u64 = 1000;
 static mut BenchWatchStopTime : u64 = 0;
 
 struct Netserver{
-    socket: TcpListener,
+    socket: UdpSocket,
     clients: HashMap<Token, Printerpart>,
     tokencounter: usize,
     continuedelay: Option<mio::Timeout>
@@ -32,7 +32,7 @@ enum Subsystem {
 
 struct Printerpart {
     id: usize,
-    socket: TcpStream,
+    addr: SocketAddr,
     parttype: Subsystem,
     blueprint: Option<File>,
     timeoutid: Option<mio::Timeout>,
@@ -42,27 +42,16 @@ struct Printerpart {
 }
 
 impl Printerpart {
-    fn new(mut socket: TcpStream) -> Printerpart{
-        let mut buf = [0;1];
-        let ptype;
-        loop {
-            ptype = match socket.try_read(&mut buf) {
-                Err(_) => unreachable!("Error while handshaking with new client"),
-                Ok(None) => continue,
-                Ok(Some(_)) => {
-                    match buf[0] {
+    fn new(mut type: u8, addr: SocketAddr) -> Printerpart {
+        let ptype = match type {
                         0 => unreachable!("Sth tried to register as an invalid printerpart!"),
                         1 => Subsystem::Printhead,
                         _ => Subsystem::Material
-                    }
-                }
-            };
-            break;
-        };
+                };
         println!("{:?}",ptype);
         Printerpart {
             id: 0,
-            socket: socket,
+            addr: addr,
             parttype: ptype,
             blueprint: None,
             timeoutid: None,
@@ -93,13 +82,14 @@ impl Handler for Netserver {
     {
         match token {
             SERVER_TOKEN => {
-                let clientsocket = match self.socket.accept() {
+                let mut data = [0];
+                let clientaddr = match self.socket.recv_from(&data) {
                     Err(e) => {
                         println!("Accept error: {}", e);
                         return;
                     },
                     Ok(None) => unreachable!("Accept has returned 'None'"),
-                    Ok(Some((sock,_))) => sock
+                    Ok(Some(addr)) => addr
                 };
 
                 self.tokencounter += 1;
@@ -402,7 +392,7 @@ fn main() {
 
     let address = "0.0.0.0:18000".parse::<SocketAddr>().unwrap();
     let mut server = Netserver {
-            socket: TcpListener::bind(&address).unwrap(),
+            socket: UdpSocket::bound(&address).unwrap(),
             tokencounter : 2,
             clients: HashMap::new(),
             continuedelay: None
