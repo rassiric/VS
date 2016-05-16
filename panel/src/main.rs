@@ -103,7 +103,6 @@ impl Handler for Netserver {
                         let mut matid :i32;
                         {
                             let mut client = self.clients.get_mut(&clienttoken).unwrap();
-                            let mut buf = [0];
                             matid = client.matid;
 
                             if client.parttype == Subsystem::Printhead {
@@ -189,7 +188,7 @@ impl Handler for Netserver {
                 match input.trim() {
                     "p" => {
                         let mut matreq : u8 = 0;
-                        let mut matid : i32;
+                        let matid : i32;
 
                         {
                             let mut printhead2use : Option<&mut Printerpart> = None;

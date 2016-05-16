@@ -1,16 +1,16 @@
 extern crate rand;
 
 use std::io::prelude::*;
-use std::net::TcpStream;
+use std::net::UdpSocket;
 use std::io::stdin;
 use rand::distributions::*;
 use rand::Rng;
 
-fn execute_cmd(stream : &mut TcpStream, cmd : u8) -> Result<(), &'static str> {
+fn execute_cmd(stream : &UdpSocket, cmd : u8) -> Result<(), &'static str> {
     match cmd  {
         1 => { //Matlevel
             let mut parambuf = [0;5]; // 4, 1 byte Parameter
-            match stream.read_exact(&mut parambuf) {
+            match stream.recv_from(&mut parambuf) {
                 Err(_) => return Err("Cannot receive matlevel parameters!"),
                 Ok(_) => {}
             }
@@ -57,16 +57,17 @@ fn execute_cmd(stream : &mut TcpStream, cmd : u8) -> Result<(), &'static str> {
 }
 
 fn main() {
-
-    let mut stream = TcpStream::connect("127.0.0.1:18000").unwrap();
+    let addr = SocketAddrV4::from_str("127.0.0.1:18000").unwrap();
+    let mut stream = UdpSocket::bind("0.0.0.0:0").unwrap();
 
     let mut rng = rand::thread_rng();
     let rndrange = Range::new(1, 100);
 
-    let _ = stream.write(&[1]); //Register as printhead
+    stream.send_to(&[1], addr).unwrap(); //Register as printhead
     loop {
-        let mut cmd = [0;1];
-        match stream.read(&mut cmd) {
+        let mut cmd = [0;17]; //Maximum package size 17 = 1 [cmdid] + 4 * 4
+
+        match stream.recv_from(&mut cmd) {
             Err(_) => unreachable!("Error while receiving next command"),
             Ok(_) => {
                 print!("R: ");
