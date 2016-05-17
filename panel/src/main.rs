@@ -13,6 +13,7 @@ use std::collections::hash_map::Entry;
 const SERVER_TOKEN: Token = Token(0);
 const CLI_TOKEN: Token = Token(1);
 const PRINT_TIMEOUT_MS : u64 = 10000;
+const MAX_PACKET_RETRIES : u8 = 3;
 const CONTINUE_DELAY_MS : u64 = 1000;
 
 static mut BenchWatchStopTime : u64 = 0;
@@ -40,6 +41,9 @@ struct Printerpart {
     timeoutid: Option<mio::Timeout>,
     matempty: bool,
     matid: i32,
+    lastcmd: [u8;17],
+    lastcmdlen: usize,
+    repeatcounter: u8,
     benchmarkcnt: i32
 }
 
@@ -59,6 +63,9 @@ impl Printerpart {
             timeoutid: None,
             matempty: false,
             matid: (typeid as i32) - 2,
+            lastcmd: [0;17],
+            lastcmdlen: 0,
+            repeatcounter: 0,
             benchmarkcnt: 0
         }
     }
@@ -312,10 +319,19 @@ impl Handler for Netserver {
                 }
             }
             _ => {
-                println!("Timeout while printing, aborting...");
                 let mut connection = self.clients.get_mut(&Token(timeout_token)).unwrap();
-                connection.blueprint = None; //Abort print process
-                connection.benchmarkcnt = 0; //Abort benchmark process
+                connection.repeatcounter += 1;
+                if connection.repeatcounter < MAX_PACKET_RETRIES {
+                    println!("Resending...");
+                    self.socket.send_to(&connection.lastcmd[0..connection.lastcmdlen],
+                        &connection.addr).unwrap();
+                }
+                else {
+                    println!("Timeout while printing, aborting...");
+
+                    connection.blueprint = None; //Abort print process
+                    connection.benchmarkcnt = 0; //Abort benchmark process
+                }
             }
         };
     }
@@ -369,6 +385,9 @@ fn continue3dprint(socket : &mut UdpSocket, printhead : &mut Printerpart, eventl
         }
     };
     socket.send_to(&params[0..cmdlen], &printhead.addr).unwrap();
+    printhead.repeatcounter = 0;
+    printhead.lastcmd = params;
+    printhead.lastcmdlen = cmdlen;
 
     printhead.timeoutid = Some(eventloop.timeout(printhead.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
     return matreq;
