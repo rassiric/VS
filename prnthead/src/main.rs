@@ -1,30 +1,19 @@
 extern crate rand;
 
-use std::io::prelude::*;
-use std::net::UdpSocket;
-use std::io::stdin;
+use std::net::*;
 use rand::distributions::*;
-use rand::Rng;
+use std::str::FromStr;
 
-fn execute_cmd(stream : &UdpSocket, cmd : u8) -> Result<(), &'static str> {
-    match cmd  {
+fn execute_cmd(cmd : [u8;17]) -> Result<(), &'static str> {
+    let parambuf = &cmd[1..17];
+    match cmd[0]  {
         1 => { //Matlevel
-            let mut parambuf = [0;5]; // 4, 1 byte Parameter
-            match stream.recv_from(&mut parambuf) {
-                Err(_) => return Err("Cannot receive matlevel parameters!"),
-                Ok(_) => {}
-            }
             let zcoor : i32 = (parambuf[0] as i32) | ((parambuf[1] as i32) << 8) |
                 ((parambuf[2] as i32) << 16) | ((parambuf[3] as i32) << 24);
-            let matid : i32 = (parambuf[4] as i32);
+            let matid : i32 = parambuf[4] as i32;
             print!("Going to level:{}; using material:{}",zcoor,matid);
         }
         2 => { //Single dot
-            let mut parambuf = [0;8]; // 2 * 4 byte Parameter
-            match stream.read_exact(&mut parambuf) {
-                Err(_) => return Err("Cannot receive dot parameters!"),
-                Ok(_) => {}
-            }
             let xcoor : i32 = (parambuf[0] as i32) | ((parambuf[1] as i32) << 8) |
                 ((parambuf[2] as i32) << 16) | ((parambuf[3] as i32) << 24);
             let ycoor : i32 = (parambuf[4] as i32) | ((parambuf[5] as i32) << 8) |
@@ -32,11 +21,6 @@ fn execute_cmd(stream : &UdpSocket, cmd : u8) -> Result<(), &'static str> {
             print!("Print dot ({}, {})",xcoor,ycoor);
         }
         3 => { //line
-            let mut parambuf = [0;16]; // 4 * 4 byte Parameter
-            match stream.read_exact(&mut parambuf) {
-                Err(_) => return Err("Cannot receive line parameters!"),
-                Ok(_) => {}
-            }
             let startx : i32 = (parambuf[0] as i32) | ((parambuf[1] as i32) << 8) |
                 ((parambuf[2] as i32) << 16) | ((parambuf[3] as i32) << 24);
             let starty : i32 = (parambuf[4] as i32) | ((parambuf[5] as i32) << 8) |
@@ -49,7 +33,7 @@ fn execute_cmd(stream : &UdpSocket, cmd : u8) -> Result<(), &'static str> {
             std::thread::sleep(std::time::Duration::from_millis(3000));
         }
         _ => {
-            println!("Unknown blueprint command {} received!", cmd);
+            println!("Unknown blueprint command {} received!", cmd[0]);
             return Err("Unknown blueprint command received!");
         }
     }
@@ -58,7 +42,7 @@ fn execute_cmd(stream : &UdpSocket, cmd : u8) -> Result<(), &'static str> {
 
 fn main() {
     let addr = SocketAddrV4::from_str("127.0.0.1:18000").unwrap();
-    let mut stream = UdpSocket::bind("0.0.0.0:0").unwrap();
+    let stream = UdpSocket::bind("0.0.0.0:0").unwrap();
 
     let mut rng = rand::thread_rng();
     let rndrange = Range::new(1, 100);
@@ -73,20 +57,20 @@ fn main() {
                 print!("R: ");
             }
         };
-        match execute_cmd(&mut stream, cmd[0]) {
+        match execute_cmd(cmd) {
             Err(msg) => {
                 println!(" - Err: {}", msg);
-                stream.write(&[255]).unwrap(); //Report failure
+                stream.send_to(&[255], addr).unwrap(); //Report failure
             },
             Ok(_) => {},
         };
 
-        if(rndrange.ind_sample(&mut rng) <= 5) { //Fail with 5% probability
-            stream.write(&[255]).unwrap(); //Report failure
+        if rndrange.ind_sample(&mut rng) <= 5 { //Fail with 5% probability
+            stream.send_to(&[255], addr).unwrap(); //Report failure
             println!(" - SimErr!");
             continue;
         } else { // Report sucess
-            stream.write(&[1]).unwrap();
+            stream.send_to(&[1], addr).unwrap();
             println!(" - Done");
         }
     }

@@ -80,7 +80,7 @@ impl Handler for Netserver {
     type Message = ();
 
     fn ready(&mut self, eventloop: &mut EventLoop<Netserver>,
-             token: Token, events: EventSet)
+             token: Token, _: EventSet)
     {
         match token {
             SERVER_TOKEN => {
@@ -116,7 +116,7 @@ impl Handler for Netserver {
                                             ((time::precise_time_ns() - BenchWatchStopTime) as f32)/1000000.0);}
                                         return;
                                     }
-                                    self.socket.send_to(&[1,57,5,0,0,0], &client.addr);
+                                    self.socket.send_to(&[1,57,5,0,0,0], &client.addr).unwrap();
                                     client.timeoutid = Some(eventloop.timeout(client.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
                                     return;
                                 }
@@ -169,7 +169,7 @@ impl Handler for Netserver {
                             if matcontainer.is_none() {
                                 unreachable!("Material not available!");
                             }
-                            self.socket.send_to(&[matreq], &matcontainer.unwrap().addr);
+                            self.socket.send_to(&[matreq], &matcontainer.unwrap().addr).unwrap();
                         }
                     }
                     Entry::Vacant(v) => {
@@ -187,7 +187,7 @@ impl Handler for Netserver {
                 stdin().read_line(&mut input).unwrap();
                 match input.trim() {
                     "p" => {
-                        let mut matreq : u8 = 0;
+                        let matreq : u8;
                         let matid : i32;
 
                         {
@@ -211,12 +211,12 @@ impl Handler for Netserver {
                                     println!("Printhead[s] busy");
                                     return;
                                 },
-                                Some(mut prntHead) => {
-                                    println!("Sending job to printhead({})", prntHead.id);
-                                    load_blueprint(prntHead, eventloop);
+                                Some(mut prnt_head) => {
+                                    println!("Sending job to printhead({})", prnt_head.id);
+                                    load_blueprint(prnt_head);
 
-                                    matid = prntHead.matid;
-                                    matreq = continue3dprint(&mut self.socket, prntHead, eventloop);
+                                    matid = prnt_head.matid;
+                                    matreq = continue3dprint(&mut self.socket, prnt_head, eventloop);
                                 }
                             }
 
@@ -234,7 +234,7 @@ impl Handler for Netserver {
                             if matcontainer.is_none() {
                                 unreachable!("Material not available!");
                             }
-                            self.socket.send_to(&[matreq], &matcontainer.unwrap().addr);
+                            self.socket.send_to(&[matreq], &matcontainer.unwrap().addr).unwrap();
                         }
                     },
                     "b" => {
@@ -254,12 +254,12 @@ impl Handler for Netserver {
                                 println!("Printhead[s] busy");
                                 return;
                             },
-                            Some(mut prntHead) => {
-                                println!("Benchmarking printhead({})", prntHead.id);
-                                prntHead.benchmarkcnt = 10000;
+                            Some(mut prnt_head) => {
+                                println!("Benchmarking printhead({})", prnt_head.id);
+                                prnt_head.benchmarkcnt = 10000;
                                 unsafe{BenchWatchStopTime = time::precise_time_ns();}
-                                self.socket.send_to(&[1,57,5,0,0,0], &prntHead.addr);
-                                prntHead.timeoutid = Some(eventloop.timeout(prntHead.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
+                                self.socket.send_to(&[1,57,5,0,0,0], &prnt_head.addr).unwrap();
+                                prnt_head.timeoutid = Some(eventloop.timeout(prnt_head.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
                             }
                         }
                     }
@@ -271,7 +271,7 @@ impl Handler for Netserver {
                     }
                 }
             },
-        token => unreachable!("Invalid eventloop token!")
+        _ => unreachable!("Invalid eventloop token!")
         }
     }
 
@@ -308,7 +308,7 @@ impl Handler for Netserver {
                     if matcontainer.is_none() {
                         unreachable!("Material not available!");
                     }
-                    self.socket.send_to(&[matreq], &matcontainer.unwrap().addr);
+                    self.socket.send_to(&[matreq], &matcontainer.unwrap().addr).unwrap();
                 }
             }
             _ => {
@@ -321,7 +321,7 @@ impl Handler for Netserver {
     }
 }
 
-fn load_blueprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
+fn load_blueprint(printhead : &mut Printerpart) {
     printhead.blueprint = Some(File::open("modell.3dbp").unwrap());
 
     //Read & check Magic number
@@ -338,9 +338,9 @@ fn load_blueprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netser
 fn continue3dprint(socket : &mut UdpSocket, printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) -> u8{
     //ToDo: check if currently printing
     //bei UDP: aktuellen Befehl hier beim printhead speichern, um erneut senden zu können
-    let mut commandid = [0];
+    let mut params = [255;17];
 
-    match printhead.blueprint.as_mut().expect("No blueprint in progess!").read_exact(&mut commandid) {
+    match printhead.blueprint.as_mut().expect("No blueprint in progess!").read_exact(&mut params[0..1]) {
         Err(_) => {
             println!("Blueprint finished!");
             printhead.blueprint = None;
@@ -350,32 +350,25 @@ fn continue3dprint(socket : &mut UdpSocket, printhead : &mut Printerpart, eventl
     }
     let mut bp = printhead.blueprint.as_mut().expect("No blueprint in progess!");
 
-    socket.send_to(&commandid, &printhead.addr).unwrap();
-
-    let matreq = match commandid[0] {
+    let (matreq, cmdlen) = match params[0] {
         1 => { //Choose level & mat, 4+1=5byte params
-             let mut params = [0;5];
-             bp.read_exact(&mut params).unwrap();
+             bp.read_exact(&mut params[1..6]).unwrap();
              printhead.matid = params[4] as i32; //New material will be taken from container with id
-             socket.send_to(&params, &printhead.addr).unwrap();
-             0
+             (0, 6)
         },
         2 => { //Print dot, 2*4=8 byte params
-             let mut params = [0;8];
-             bp.read_exact(&mut params).unwrap();
-             socket.send_to(&params, &printhead.addr).unwrap();
-             1//A dot takes 1 material unit
+             bp.read_exact(&mut params[1..9]).unwrap();
+             (1, 9) //A dot takes 1 simulated material unit
         },
         3 => { //Print line, 4*4=16byte params
-            let mut params = [0;16];
-            bp.read_exact(&mut params).unwrap();
-            socket.send_to(&params, &printhead.addr).unwrap();
-            2//A line takes 2 material units
+             bp.read_exact(&mut params[1..17]).unwrap();
+             (2, 17) //A line takes 2 simulated material units
         }
         _ => {
-            unreachable!("Unknown blueprint command");
+            unreachable!("Unknown blueprint command: {}", params[0]);
         }
     };
+    socket.send_to(&params[0..cmdlen], &printhead.addr).unwrap();
 
     printhead.timeoutid = Some(eventloop.timeout(printhead.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
     return matreq;
