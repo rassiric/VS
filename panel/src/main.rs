@@ -89,7 +89,7 @@ impl Handler for Netserver {
     type Message = ();
 
     fn ready(&mut self, eventloop: &mut EventLoop<Netserver>,
-             token: Token, events: EventSet)
+             token: Token, _: EventSet)
     {
         match token {
             SERVER_TOKEN => {
@@ -116,8 +116,8 @@ impl Handler for Netserver {
                 stdin().read_line(&mut input).unwrap();
                 match input.trim() {
                     "p" => {
-                        let mut matreq : u8 = 0;
-                        let mut matid : i32;
+                        let matreq : u8;
+                        let matid : i32;
 
                         {
                             let mut printhead2use : Option<&mut Printerpart> = None;
@@ -140,12 +140,12 @@ impl Handler for Netserver {
                                     println!("Printhead[s] busy");
                                     return;
                                 },
-                                Some(mut prntHead) => {
-                                    println!("Sending job to printhead({})", prntHead.id);
-                                    load_blueprint(prntHead, eventloop);
+                                Some(mut prnt_head) => {
+                                    println!("Sending job to printhead({})", prnt_head.id);
+                                    load_blueprint(prnt_head, eventloop);
 
-                                    matid = prntHead.matid;
-                                    matreq = continue3dprint(prntHead, eventloop);
+                                    matid = prnt_head.matid;
+                                    matreq = continue3dprint(prnt_head, eventloop);
                                 }
                             }
 
@@ -163,7 +163,7 @@ impl Handler for Netserver {
                             if matcontainer.is_none() {
                                 unreachable!("Material not available!");
                             }
-                            matcontainer.unwrap().socket.write(&[matreq]);
+                            matcontainer.unwrap().socket.write(&[matreq]).unwrap();
                         }
                     },
                     "b" => {
@@ -183,12 +183,12 @@ impl Handler for Netserver {
                                 println!("Printhead[s] busy");
                                 return;
                             },
-                            Some(mut prntHead) => {
-                                println!("Benchmarking printhead({})", prntHead.id);
-                                prntHead.benchmarkcnt = 10000;
+                            Some(mut prnt_head) => {
+                                println!("Benchmarking printhead({})", prnt_head.id);
+                                prnt_head.benchmarkcnt = 10000;
                                 unsafe{BenchWatchStopTime = time::precise_time_ns();}
-                                prntHead.socket.write(&[1,57,5,0,0,0]);
-                                prntHead.timeoutid = Some(eventloop.timeout(prntHead.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
+                                prnt_head.socket.write(&[1,57,5,0,0,0]).unwrap();
+                                prnt_head.timeoutid = Some(eventloop.timeout(prnt_head.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
                             }
                         }
                     }
@@ -229,7 +229,7 @@ impl Handler for Netserver {
                                     ((time::precise_time_ns() - BenchWatchStopTime) as f32)/1000000.0);}
                                 return;
                             }
-                            client.socket.write(&[1,57,5,0,0,0]);
+                            client.socket.write(&[1,57,5,0,0,0]).unwrap();
                             client.timeoutid = Some(eventloop.timeout(client.id, Duration::from_millis(PRINT_TIMEOUT_MS)).unwrap());
                             return;
                         }
@@ -282,7 +282,7 @@ impl Handler for Netserver {
                     if matcontainer.is_none() {
                         unreachable!("Material not available!");
                     }
-                    matcontainer.unwrap().socket.write(&[matreq]);
+                    matcontainer.unwrap().socket.write(&[matreq]).unwrap();
                 }
             }
         }
@@ -321,7 +321,7 @@ impl Handler for Netserver {
                     if matcontainer.is_none() {
                         unreachable!("Material not available!");
                     }
-                    matcontainer.unwrap().socket.write(&[matreq]);
+                    matcontainer.unwrap().socket.write(&[matreq]).unwrap();
                 }
             }
             _ => {
@@ -334,7 +334,7 @@ impl Handler for Netserver {
     }
 }
 
-fn load_blueprint(printhead : &mut Printerpart, eventloop: &mut EventLoop<Netserver>) {
+fn load_blueprint(printhead : &mut Printerpart, _: &mut EventLoop<Netserver>) {
     printhead.blueprint = Some(File::open("modell.3dbp").unwrap());
 
     //Read & check Magic number

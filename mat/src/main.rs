@@ -2,12 +2,12 @@ use std::io::prelude::*;
 use std::net::TcpStream;
 use std::io::stdin;
 
-const matid : u8 = 0;
+const MATID : u8 = 0;
 
 fn main() {
     let mut level = 10;
     let mut stream = TcpStream::connect("127.0.0.1:18000").unwrap();
-    stream.write(&[(2+matid)]).unwrap(); //Register as material
+    stream.write(&[(2+MATID)]).unwrap(); //Register as material
 
     let mut input = String::new();
     loop{
@@ -20,7 +20,7 @@ fn main() {
         }
         level -= usebuf[0]; //material abziehen
         println!("Matlevel: {}", level);
-        if(level > 2) {
+        if level > 2 {
             continue;
         }
         println!("Nearly empty, halting!", );
