@@ -43,7 +43,7 @@ struct Printerpart {
 
 impl Printerpart {
     fn new(mut socket: TcpStream) -> Printerpart{
-        let mut buf = [0;1];
+        let mut buf = [0];
         let ptype;
         loop {
             ptype = match socket.try_read(&mut buf) {
