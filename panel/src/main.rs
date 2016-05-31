@@ -8,6 +8,9 @@ use std::collections::HashMap;
 use std::io::*;
 use std::fs::File;
 use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::cell::RefCell;
 
 const SERVER_TOKEN: Token = Token(0);
 const CLI_TOKEN: Token = Token(1);
@@ -18,7 +21,7 @@ static mut BenchWatchStopTime : u64 = 0;
 
 struct Netserver{
     socket: TcpListener,
-    clients: HashMap<Token, Printerpart>,
+    clients: Arc<Mutex<HashMap<Token, Printerpart>>>,
     tokencounter: usize,
     continuedelay: Option<mio::Timeout>
 }
@@ -75,7 +78,7 @@ impl Printerpart {
 
 impl Netserver {
     fn check_mat_status(&self) -> bool {
-        for part in self.clients.values() {
+        for part in self.clients.lock().unwrap().values() {
             if part.parttype == Subsystem::Material && part.matempty {
                 return false;
             }
@@ -105,11 +108,17 @@ impl Handler for Netserver {
                 self.tokencounter += 1;
                 let new_token = Token(self.tokencounter);
 
-                self.clients.insert(new_token, Printerpart::new(clientsocket));
-                self.clients.get_mut(&new_token).unwrap().id = self.tokencounter; //inform Printerpart about its ID
-                eventloop.register(&self.clients[&new_token].socket,
+                {
+                    let mut c = self.clients.lock().unwrap();
+                    c.insert(new_token, Printerpart::new(clientsocket));
+                    c.get_mut(&new_token).unwrap().id = self.tokencounter; //inform Printerpart about its ID
+                }
+                {
+                    let c = self.clients.lock().unwrap();
+                    eventloop.register(& c[&new_token].socket,
                                     new_token, EventSet::readable(),
                                     PollOpt::edge()).unwrap();
+                }
             },
             CLI_TOKEN => {
                 let mut input = String::new();
@@ -120,13 +129,15 @@ impl Handler for Netserver {
                         let matid : i32;
 
                         {
-                            let mut printhead2use : Option<&mut Printerpart> = None;
                             if !self.check_mat_status() {
                                 println!("Job discarded: Please refill material containers first!");
                                 return;
                             }
+                            
+                            let mut c = self.clients.lock().unwrap();
+                            let mut printhead2use : Option<&mut Printerpart> = None;
 
-                            for (_, printpart) in self.clients.iter_mut() {
+                            for (_, printpart) in c.iter_mut() {
                                 if printpart.parttype == Subsystem::Printhead
                                     && printpart.blueprint.is_none()
                                 {
@@ -148,11 +159,11 @@ impl Handler for Netserver {
                                     matreq = continue3dprint(prnt_head, eventloop);
                                 }
                             }
-
                         }
                         if matreq > 0 {
+                            let mut c = self.clients.lock().unwrap();
                             let mut matcontainer : Option<&mut Printerpart> = None;
-                            for (_, printpart) in self.clients.iter_mut() {
+                            for (_, printpart) in c.iter_mut() {
                                 if printpart.parttype == Subsystem::Material
                                     && printpart.matid == matid
                                 {
@@ -167,9 +178,10 @@ impl Handler for Netserver {
                         }
                     },
                     "b" => {
+                        let mut c = self.clients.lock().unwrap();
                         let mut printhead2use : Option<&mut Printerpart> = None;
 
-                        for (_, printpart) in self.clients.iter_mut() {
+                        for (_, printpart) in c.iter_mut() {
                             if printpart.parttype == Subsystem::Printhead
                                 && printpart.blueprint.is_none()
                             {
@@ -206,7 +218,9 @@ impl Handler for Netserver {
                 let mut matreq : u8 = 0;
                 let mut matid :i32;
                 {
-                    let mut client = self.clients.get_mut(&token).unwrap();
+
+                    let mut c = self.clients.lock().unwrap();
+                    let mut client = c.get_mut(&token).unwrap();
                     let mut buf = [0];
                     matid = client.matid;
                     let result;
@@ -270,8 +284,9 @@ impl Handler for Netserver {
                     }
                 }
                 if matreq > 0 {
+                    let mut c = self.clients.lock().unwrap();
                     let mut matcontainer : Option<&mut Printerpart> = None;
-                    for (_, printpart) in self.clients.iter_mut() {
+                    for (_, printpart) in c.iter_mut() {
                         if printpart.parttype == Subsystem::Material
                             && printpart.matid == matid
                         {
@@ -295,7 +310,7 @@ impl Handler for Netserver {
                 let mut matid :u8 =0;
                 if self.check_mat_status() {
                     println!("All material containers refilled!");
-                    for (_, printerpart) in self.clients.iter_mut() {
+                    for (_, printerpart) in self.clients.lock().unwrap().iter_mut() {
                         if printerpart.parttype == Subsystem::Printhead &&
                             printerpart.blueprint.is_some() {
 
@@ -309,8 +324,9 @@ impl Handler for Netserver {
                     println!("Still missing material...");
                 }
                 if matreq > 0 {
+                    let mut c = self.clients.lock().unwrap();
                     let mut matcontainer : Option<&mut Printerpart> = None;
-                    for (_, printpart) in self.clients.iter_mut() {
+                    for (_, printpart) in c.iter_mut() {
                         if printpart.parttype == Subsystem::Material
                             && printpart.matid == matid as i32
                         {
@@ -326,7 +342,8 @@ impl Handler for Netserver {
             }
             _ => {
                 println!("Timeout while printing, aborting...");
-                let mut connection = self.clients.get_mut(&Token(timeout_token)).unwrap();
+                let mut c = self.clients.lock().unwrap();
+                let mut connection = c.get_mut(&Token(timeout_token)).unwrap();
                 connection.blueprint = None; //Abort print process
                 connection.benchmarkcnt = 0; //Abort benchmark process
             }
@@ -404,7 +421,7 @@ fn main() {
     let mut server = Netserver {
             socket: TcpListener::bind(&address).unwrap(),
             tokencounter : 2,
-            clients: HashMap::new(),
+            clients: Arc::new(Mutex::new(HashMap::new())),
             continuedelay: None
     };
 
