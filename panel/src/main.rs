@@ -18,7 +18,7 @@ const CONTINUE_DELAY_MS : u64 = 1000;
 
 fn main() {
     println!("VS-Fab 3D Printer Panel - Ramiz Bahrami(736861), Adrian Müller(734922)");
-    println!("Welcome! Your options are:"); //TODO
+    println!("Welcome! Your options are:");
     println!(" p - Print blueprint once");
     println!(" b - Run throughput benchmark");
     println!(" q - Quit");
