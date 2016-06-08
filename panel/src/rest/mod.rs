@@ -1,3 +1,5 @@
+extern crate rustc_serialize;
+
 use hyper::{Get, Post, StatusCode, RequestUri, Decoder, Encoder, Next};
 use hyper::header::ContentLength;
 use hyper::net::HttpStream;
@@ -6,13 +8,22 @@ use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use mio::Token;
 use super::internals::Printerpart;
+use super::internals::PrinterPartType;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::io::{Write, Read};
+use rustc_serialize::json;
+
+#[derive(RustcEncodable)]
+struct Status {
+    busy: bool,
+    matempty: bool
+}
 
 struct PrinterRest { 
     pub internals: Arc<RwLock<HashMap<Token, Rc<RefCell<Printerpart>>>>>,
     action:        Action
+
 }
 
 enum Action {
@@ -26,6 +37,27 @@ impl PrinterRest {
             internals: internals,
             action:    Action::InvalidRequest
         }
+    }
+
+    fn get_status(&mut self, outp : &mut Write) {
+        let status = Status {
+            busy: false,
+            matempty: self.check_mat_status()
+        }
+    }
+
+    fn check_mat_status(&self) -> bool {
+        let clients = self.internals.read().unwrap();
+        for cell in clients.values() {
+            let part = cell.borrow();
+            if part.parttype != PrinterPartType::Material {
+                continue;
+            }
+            if part.matempty {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -51,13 +83,11 @@ impl Handler<HttpStream> for PrinterRest {
         match self.action {
             Action::InvalidRequest => {
                 res.set_status(StatusCode::BadRequest); //Generic 400 failure
-                res.headers_mut().set( ContentLength(29) );
                 Next::write()
             },
             Action::GetStatus => {
-                res.headers_mut().set( ContentLength(0) );
-                Next::end()
-            }
+                Next::write()
+            } 
         }
     }
 
@@ -66,8 +96,12 @@ impl Handler<HttpStream> for PrinterRest {
             Action::InvalidRequest => {
                 transport.write(b"{ \"error\": \"invalidrequest\" }").unwrap();
                 Next::end()
+            },
+            Action::GetStatus => {
+                self.get_status(transport);
+                Next::end()
             }
-            _ => unimplemented!()
+            //_ => unimplemented!()
         }
     }
 }

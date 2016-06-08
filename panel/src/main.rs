@@ -10,6 +10,7 @@ use mio::{EventLoop, Token, EventSet, PollOpt};
 use std::net::SocketAddr;
 use mio::tcp::TcpListener;
 use std::collections::HashMap;
+use std::thread;
 
 const SERVER_TOKEN: Token = Token(0);
 const CLI_TOKEN: Token = Token(1);
@@ -27,7 +28,7 @@ fn main() {
 
     let internal_parts = Arc::new(RwLock::new(HashMap::new()));
 
-    rest::serve( internal_parts.clone() );
+    /*let restthread = thread::spawn( || {*/ rest::serve( internal_parts.clone() );/* } );*/
 
     let address = "0.0.0.0:18000".parse::<SocketAddr>().unwrap();
     let mut server = internals::Server {

@@ -21,7 +21,7 @@ pub struct Printerpart {
     pub id: usize,
     pub socket: TcpStream,
     pub parttype: PrinterPartType,
-    pub blueprint: Option<File>,
+    pub blueprint: Option<Box<Read>>,
     pub timeoutid: Option<Timeout>,
     pub matempty: bool,
     pub matid: i32,
@@ -60,7 +60,7 @@ impl Printerpart {
         }
     }
 
-    pub fn set_blueprint(self : &mut Self, blueprint : Option<File>) {
+    pub fn set_blueprint(self : &mut Self, blueprint : Option<Box<Read>>) {
         self.blueprint = blueprint;
     }
 
@@ -69,7 +69,7 @@ impl Printerpart {
     }
 
     pub fn load_blueprint(self : &mut Self) {
-        self.blueprint = Some( File::open("modell.3dbp").unwrap() );
+        self.blueprint = Some( Box::new( File::open("modell.3dbp").unwrap() ) );
 
         //Read & check Magic number
         let mut magic = [0;4];
