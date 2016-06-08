@@ -47,7 +47,6 @@ fn execute_cmd(stream : &mut TcpStream, cmd : u8) -> Result<(), &'static str> {
             std::thread::sleep(std::time::Duration::from_millis(3000));
         }
         _ => {
-            println!("Unknown blueprint command {} received!", cmd);
             return Err("Unknown blueprint command received!");
         }
     }
@@ -63,9 +62,12 @@ fn main() {
 
     let _ = stream.write(&[1]); //Register as printhead
     loop {
-        let mut cmd = [0;1];
-        match stream.read(&mut cmd) {
-            Err(_) => unreachable!("Error while receiving next command"),
+        let mut cmd = [0];
+        match stream.read_exact(&mut cmd) {
+            Err(_) => {
+                println!("Connection closed, exiting");
+                return;
+            },
             Ok(_) => {
                 print!("R: ");
             }
@@ -74,6 +76,7 @@ fn main() {
             Err(msg) => {
                 println!(" - Err: {}", msg);
                 stream.write(&[255]).unwrap(); //Report failure
+                continue;
             },
             Ok(_) => {},
         };

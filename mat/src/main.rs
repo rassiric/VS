@@ -15,7 +15,8 @@ fn main() {
         match stream.read_exact(&mut usebuf) {
             Ok(_) => {},
             Err(_) => {
-                unreachable!("Error while reading used material");
+                println!("Connection closed, exit");
+                return;
             }
         }
         level -= usebuf[0]; //material abziehen

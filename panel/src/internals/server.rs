@@ -182,17 +182,18 @@ impl Handler for Server {
             0 => { //Timeout id 0 is check for continue
                 if self.check_mat_status() {
                     println!("All material containers refilled!");
-                    for mut printerpart in self.clients.read().unwrap().values().map( |cell| cell.borrow_mut() ) {
-                        if printerpart.parttype == PrinterPartType::Printhead &&
-                                printerpart.blueprint.is_some() {
-                            println!("Continuing on printhead {}", printerpart.id );
-                            
-                            match self.get_mat_src(printerpart.matid) {
+                    for cell in self.clients.read().unwrap().values() {
+                        let parttype = cell.borrow().parttype;
+                        let has_bp    = cell.borrow().blueprint.is_some();
+                        if parttype == PrinterPartType::Printhead && has_bp {
+                            println!("Continuing on printhead {}", cell.borrow().id );
+                            let matid = cell.borrow().matid;
+                            match self.get_mat_src(matid) {
                                 Some(mat_src) => {
-                                    printerpart.exec_instr( eventloop, Some(mat_src.borrow_mut().deref_mut()) );
+                                    cell.borrow_mut().exec_instr( eventloop, Some(mat_src.borrow_mut().deref_mut()) );
                                 },
                                 None => {
-                                    printerpart.exec_instr( eventloop, None );
+                                    cell.borrow_mut().exec_instr( eventloop, None );
                                 }
                             }
                         }
