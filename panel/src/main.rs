@@ -1,7 +1,9 @@
 extern crate mio;
 extern crate time;
+extern crate hyper;
 
 mod internals;
+mod rest;
 
 use std::sync::{Arc, RwLock};
 use mio::{EventLoop, Token, EventSet, PollOpt};
@@ -24,6 +26,8 @@ fn main() {
     let mut eventloop = EventLoop::new().unwrap();
 
     let internal_parts = Arc::new(RwLock::new(HashMap::new()));
+
+    rest::serve( internal_parts.clone() );
 
     let address = "0.0.0.0:18000".parse::<SocketAddr>().unwrap();
     let mut server = internals::Server {
