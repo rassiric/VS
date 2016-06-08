@@ -1,4 +1,3 @@
-use super::super::mio;
 use super::super::time;
 
 use std::io::{Read, Write};
@@ -12,8 +11,7 @@ use super::super::PRINT_TIMEOUT_MS;
 use super::super::CONTINUE_DELAY_MS;
 use super::BenchWatchStopTime;
 
-#[derive(Debug)]
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum PrinterPartType {
     Printhead,
     Material
@@ -138,13 +136,6 @@ impl Printerpart {
         self.socket.write(&[amount]).unwrap();
     }
 
-    pub fn notify(self : &mut Self, eventloop: &mut EventLoop<Server>, matcontainer : Option<&mut Printerpart>, continuedelay : &mut Option<Timeout>) {
-        match self.parttype {
-            PrinterPartType::Printhead => { self.notify_printhead(eventloop, matcontainer); },
-            PrinterPartType::Material  => { self.notify_material(eventloop, continuedelay);  }
-        }
-    }
-
     fn read_result(self : &mut Self) -> u8 {
         let mut buf = [0];
         loop {
@@ -156,7 +147,7 @@ impl Printerpart {
         };
     }
 
-    fn notify_printhead(self : &mut Self, eventloop : &mut EventLoop<Server>, matcontainer : Option<&mut Printerpart>) {
+    pub fn notify_printhead(self : &mut Self, eventloop : &mut EventLoop<Server>, matcontainer : Option<&mut Printerpart>) {
         eventloop.clear_timeout(& self.timeoutid.as_mut().expect("Unexpected printhead message!"));
         self.timeoutid = None;
         
@@ -170,7 +161,7 @@ impl Printerpart {
                     self.exec_instr(eventloop, matcontainer)
                 }
                 else {
-                    println!("Pausing print until material is refilled");
+                    println!("Printhead({}): Pausing print until material is refilled", self.id);
                 }
             },
             255 => {
@@ -181,7 +172,7 @@ impl Printerpart {
         };
     }
 
-    fn notify_material(self : &mut Self, eventloop : &mut EventLoop<Server>, continuedelay : &mut Option<Timeout>) {
+    pub fn notify_material(self : &mut Self, eventloop : &mut EventLoop<Server>, continuedelay : &mut Option<Timeout>) {
         match self.read_result() {
             255 => {
                 println!("Material container {} is nearly empty, pausing...", self.matid);

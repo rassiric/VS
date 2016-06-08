@@ -27,6 +27,7 @@ fn main() {
 
         let _ = stream.write(&[255]); //notify nearly empty
         stdin().read_line(&mut input).unwrap(); //wait till enter to reset
+        println!("Refilled");
         level = 20;
         let _ = stream.write(&[1]); //notify nearly empty
     }

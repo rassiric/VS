@@ -1,10 +1,8 @@
-use super::super::mio;
 use super::super::time;
 
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::rc::Rc;
-use std::thread;
 use std::cell::RefCell;
 use std::io::stdin;
 use std::collections::HashMap;
@@ -23,14 +21,14 @@ use super::BenchWatchStopTime;
 
 pub struct Server {
     pub socket: TcpListener,
-    pub clients: Arc<Mutex<HashMap<Token, Rc<RefCell<Printerpart>>>>>,
+    pub clients: Arc<RwLock<HashMap<Token, Rc<RefCell<Printerpart>>>>>,
     pub tokencounter: usize,
     pub continuedelay: Option<Timeout>
 }
 
 impl Server {
     fn check_mat_status(&self) -> bool {
-        let client = self.clients.lock().unwrap();
+        let client = self.clients.read().unwrap();
         for cell in client.values() {
             let part = cell.borrow();
             if part.parttype != PrinterPartType::Material {
@@ -56,14 +54,14 @@ impl Server {
        self.tokencounter += 1;
        let token = Token(self.tokencounter);
 
-       let mut clients = self.clients.lock().unwrap();
+       let mut clients = self.clients.write().unwrap();
        clients.insert( token, Rc::new( RefCell::new( Printerpart::new(clientsocket, self.tokencounter) ) ) );
        eventloop.register( & clients[&token].borrow().socket, token,
                            EventSet::readable(), PollOpt::edge() ).unwrap();
     }
 
     fn get_free_printhead(self : &Self) -> Option<Rc<RefCell<Printerpart>>> {
-        let clients = self.clients.lock().unwrap();
+        let clients = self.clients.read().unwrap();
         for cell in clients.values() {
             let part = cell.borrow();
             if part.parttype == PrinterPartType::Printhead
@@ -89,14 +87,7 @@ impl Server {
                 println!("Sending job to printhead({})", printhead.id);
                 printhead.load_blueprint();
 
-                match self.get_mat_src(printhead.matid) {
-                    Some(mat_src) => {
-                        printhead.exec_instr( eventloop, Some(mat_src.borrow_mut().deref_mut()) );
-                    },
-                    None => {
-                        printhead.exec_instr( eventloop, None );
-                    }
-                }
+                printhead.exec_instr( eventloop, None ); //First instruction cannot use a Material, since it could not possibly have selected one
             }
         }
     }
@@ -107,7 +98,7 @@ impl Server {
                 println!("Printhead[s] busy");
                 return;
             },
-            Some(mut printhead) => {
+            Some(printhead) => {
                 let mut printhead = printhead.borrow_mut();
                 println!("Benchmarking printhead({})", printhead.id);
                 printhead.benchmarkcnt = 10000;
@@ -120,7 +111,7 @@ impl Server {
 
     fn get_mat_src(self : &Self, required_mat_id : i32) -> Option<Rc<RefCell<Printerpart>>> {
         if self.check_mat_status() {
-            let clients = self.clients.lock().unwrap();
+            let clients = self.clients.read().unwrap();
             for cell in clients.values() {
                 let part = cell.borrow();
                 if part.parttype == PrinterPartType::Material
@@ -164,18 +155,25 @@ impl Handler for Server {
                 }
             },
             token => {
-                let mat_available = self.check_mat_status();
+                let clients = self.clients.read().unwrap();
+                let client = clients.get(&token).unwrap();
 
-                let mut clients = self.clients.lock().unwrap();
-                let mut client = clients.get(&token).unwrap().borrow_mut();
-                match self.get_mat_src(client.matid) {
-                    Some(mat_src) => {
-                        client.notify( eventloop, Some(mat_src.borrow_mut().deref_mut()), &mut self.continuedelay );
+                let parttype = client.borrow().parttype;
+
+                match parttype {
+                    PrinterPartType::Printhead => {
+                        let matid = client.borrow().matid;
+                        match self.get_mat_src(matid) {
+                            Some(mat_src) => {
+                                client.borrow_mut().notify_printhead( eventloop, Some( mat_src.borrow_mut().deref_mut() ) );
+                            },
+                            None => {
+                                client.borrow_mut().notify_printhead( eventloop, None );
+                            }
+                        }
                     },
-                    None => {
-                        client.notify( eventloop, None, &mut self.continuedelay );
-                    }
-                }
+                    PrinterPartType::Material  => { client.borrow_mut().notify_material(eventloop, &mut self.continuedelay);  }
+                };
             }
         }
     }
@@ -184,7 +182,7 @@ impl Handler for Server {
             0 => { //Timeout id 0 is check for continue
                 if self.check_mat_status() {
                     println!("All material containers refilled!");
-                    for mut printerpart in self.clients.lock().unwrap().values().map( |cell| cell.borrow_mut() ) {
+                    for mut printerpart in self.clients.read().unwrap().values().map( |cell| cell.borrow_mut() ) {
                         if printerpart.parttype == PrinterPartType::Printhead &&
                                 printerpart.blueprint.is_some() {
                             println!("Continuing on printhead {}", printerpart.id );
@@ -206,7 +204,7 @@ impl Handler for Server {
             }
             _ => {
                 println!("Timeout while printing, aborting...");
-                let mut clients = self.clients.lock().unwrap();
+                let clients = self.clients.read().unwrap();
                 let mut connection = clients.get(&Token(timeout_token)).unwrap().borrow_mut();
                 connection.set_blueprint(None); //Abort print process
                 connection.abort_benchmark(); //Abort benchmark process

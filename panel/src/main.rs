@@ -1,15 +1,13 @@
 extern crate mio;
 extern crate time;
+
 mod internals;
 
-use std::sync::{Arc, Mutex};
-use mio::*;
+use std::sync::{Arc, RwLock};
+use mio::{EventLoop, Token, EventSet, PollOpt};
 use std::net::SocketAddr;
-use mio::tcp::*;
+use mio::tcp::TcpListener;
 use std::collections::HashMap;
-use std::io::*;
-use std::fs::File;
-use std::time::Duration;
 
 const SERVER_TOKEN: Token = Token(0);
 const CLI_TOKEN: Token = Token(1);
@@ -25,7 +23,7 @@ fn main() {
 
     let mut eventloop = EventLoop::new().unwrap();
 
-    let mut internal_parts = Arc::new(Mutex::new(HashMap::new()));
+    let internal_parts = Arc::new(RwLock::new(HashMap::new()));
 
     let address = "0.0.0.0:18000".parse::<SocketAddr>().unwrap();
     let mut server = internals::Server {
