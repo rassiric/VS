@@ -1,9 +1,8 @@
-extern crate rustc_serialize;
-
 use hyper::{Get, Post, StatusCode, RequestUri, Decoder, Encoder, Next};
-use hyper::header::ContentLength;
+use hyper::header::ContentType;
 use hyper::net::HttpStream;
 use hyper::server::{Server, Handler, Request, Response};
+use hyper::mime;
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use mio::Token;
@@ -13,6 +12,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::io::{Write, Read};
 use rustc_serialize::json;
+use rustc_serialize::json::{ToJson, Json};
 
 #[derive(RustcEncodable)]
 struct Status {
@@ -39,11 +39,12 @@ impl PrinterRest {
         }
     }
 
-    fn get_status(&mut self, outp : &mut Write) {
+    fn get_status(&mut self) -> String {
         let status = Status {
             busy: false,
-            matempty: self.check_mat_status()
-        }
+            matempty: !self.check_mat_status()
+        };
+	json::encode(&status).unwrap()
     }
 
     fn check_mat_status(&self) -> bool {
@@ -80,6 +81,9 @@ impl Handler<HttpStream> for PrinterRest {
     }
 
     fn on_response(&mut self, res: &mut Response) -> Next {
+	res.headers_mut().set( ContentType( 
+            mime::Mime( mime::TopLevel::Text, mime::SubLevel::Json,
+                vec![(mime::Attr::Charset, mime::Value::Utf8)] ) ) );
         match self.action {
             Action::InvalidRequest => {
                 res.set_status(StatusCode::BadRequest); //Generic 400 failure
@@ -98,7 +102,7 @@ impl Handler<HttpStream> for PrinterRest {
                 Next::end()
             },
             Action::GetStatus => {
-                self.get_status(transport);
+                transport.write( self.get_status( ).as_bytes() );
                 Next::end()
             }
             //_ => unimplemented!()

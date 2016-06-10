@@ -1,6 +1,7 @@
 extern crate mio;
 extern crate time;
 extern crate hyper;
+extern crate rustc_serialize;
 
 mod internals;
 mod rest;
