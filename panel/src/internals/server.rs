@@ -2,7 +2,6 @@ use super::super::time;
 
 use std::io::{Read, Write};
 use std::sync::{Arc, RwLock};
-use std::cell::RefCell;
 use std::io::stdin;
 use std::collections::HashMap;
 use std::ops::DerefMut;

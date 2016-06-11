@@ -1,9 +1,7 @@
-use hyper::server::{Server, Handler};
+use hyper::server::Server;
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use mio::Token;
-use super::internals;
-use std::cell::RefCell;
 use internals::Printerpart;
 
 mod printer_rest;

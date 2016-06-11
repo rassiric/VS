@@ -1,17 +1,15 @@
 use hyper::{Get, Post, StatusCode, RequestUri, Decoder, Encoder, Next};
 use hyper::header::ContentType;
 use hyper::net::HttpStream;
-use hyper::server::{Server, Handler, Request, Response};
+use hyper::server::{Handler, Request, Response};
 use hyper::mime;
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use mio::Token;
-use super::super::internals::Printerpart;
-use super::super::internals::PrinterPartType;
-use std::cell::RefCell;
+use internals::Printerpart;
+use internals::PrinterPartType;
 use std::io::{Write, Read};
 use rustc_serialize::json;
-use rustc_serialize::json::{ToJson, Json};
 
 #[derive(RustcEncodable)]
 struct Status {
@@ -40,10 +38,23 @@ impl PrinterRest {
 
     fn get_status(&mut self) -> String {
         let status = Status {
-            busy: false,
+            busy: self.get_free_printhead().is_none(), //Printer is busy if no printhead is available (so it also works if there is no Printhead connected yet)
             matempty: !self.check_mat_status()
         };
         json::encode(&status).unwrap()
+    }
+
+
+    fn get_free_printhead(self : &Self) -> Option<Arc<RwLock<Printerpart>>> {
+        let clients = self.internalss.read().unwrap();
+        for cell in clients.values() {
+            let part = cell.read().unwrap();
+            if part.parttype == PrinterPartType::Printhead
+                    && part.blueprint.is_none() {
+                return Some(cell.clone());
+            }
+        }
+        None
     }
 
     fn check_mat_status(&self) -> bool {
@@ -81,7 +92,7 @@ impl Handler<HttpStream> for PrinterRest {
 
     fn on_response(&mut self, res: &mut Response) -> Next {
 	res.headers_mut().set( ContentType( 
-            mime::Mime( mime::TopLevel::Text, mime::SubLevel::Json,
+            mime::Mime( mime::TopLevel::Application, mime::SubLevel::Json,
                 vec![(mime::Attr::Charset, mime::Value::Utf8)] ) ) );
         match self.action {
             Action::InvalidRequest => {
@@ -101,7 +112,7 @@ impl Handler<HttpStream> for PrinterRest {
                 Next::end()
             },
             Action::GetStatus => {
-                transport.write( self.get_status( ).as_bytes() );
+                transport.write( self.get_status( ).as_bytes() ).unwrap();
                 Next::end()
             }
             //_ => unimplemented!()
