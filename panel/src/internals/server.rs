@@ -2,7 +2,6 @@ use super::super::time;
 
 use std::io::{Read, Write};
 use std::sync::{Arc, RwLock};
-use std::rc::Rc;
 use std::cell::RefCell;
 use std::io::stdin;
 use std::collections::HashMap;
@@ -21,7 +20,7 @@ use super::BenchWatchStopTime;
 
 pub struct Server {
     pub socket: TcpListener,
-    pub clients: Arc<RwLock<HashMap<Token, Rc<RefCell<Printerpart>>>>>,
+    pub clients: Arc<RwLock<HashMap<Token, Arc<RwLock<Printerpart>>>>>,
     pub tokencounter: usize,
     pub continuedelay: Option<Timeout>
 }
@@ -30,7 +29,7 @@ impl Server {
     fn check_mat_status(&self) -> bool {
         let client = self.clients.read().unwrap();
         for cell in client.values() {
-            let part = cell.borrow();
+            let part = cell.read().unwrap();
             if part.parttype != PrinterPartType::Material {
                 continue;
             }
@@ -55,15 +54,15 @@ impl Server {
        let token = Token(self.tokencounter);
 
        let mut clients = self.clients.write().unwrap();
-       clients.insert( token, Rc::new( RefCell::new( Printerpart::new(clientsocket, self.tokencounter) ) ) );
-       eventloop.register( & clients[&token].borrow().socket, token,
+       clients.insert( token, Arc::new( RwLock::new( Printerpart::new(clientsocket, self.tokencounter) ) ) );
+       eventloop.register( & clients[&token].read().unwrap().socket, token,
                            EventSet::readable(), PollOpt::edge() ).unwrap();
     }
 
-    fn get_free_printhead(self : &Self) -> Option<Rc<RefCell<Printerpart>>> {
+    fn get_free_printhead(self : &Self) -> Option<Arc<RwLock<Printerpart>>> {
         let clients = self.clients.read().unwrap();
         for cell in clients.values() {
-            let part = cell.borrow();
+            let part = cell.read().unwrap();
             if part.parttype == PrinterPartType::Printhead
                     && part.blueprint.is_none() {
                 return Some(cell.clone());
@@ -83,7 +82,7 @@ impl Server {
                 println!("Printhead[s] busy");
             },
             Some(printhead) => {
-                let mut printhead = printhead.borrow_mut();
+                let mut printhead = printhead.write().unwrap();
                 println!("Sending job to printhead({})", printhead.id);
                 printhead.load_blueprint();
 
@@ -99,7 +98,7 @@ impl Server {
                 return;
             },
             Some(printhead) => {
-                let mut printhead = printhead.borrow_mut();
+                let mut printhead = printhead.write().unwrap();
                 println!("Benchmarking printhead({})", printhead.id);
                 printhead.benchmarkcnt = 10000;
                 unsafe{BenchWatchStopTime = time::precise_time_ns();}
@@ -109,11 +108,11 @@ impl Server {
         }
     }
 
-    fn get_mat_src(self : &Self, required_mat_id : i32) -> Option<Rc<RefCell<Printerpart>>> {
+    fn get_mat_src(self : &Self, required_mat_id : i32) -> Option<Arc<RwLock<Printerpart>>> {
         if self.check_mat_status() {
             let clients = self.clients.read().unwrap();
             for cell in clients.values() {
-                let part = cell.borrow();
+                let part = cell.read().unwrap();
                 if part.parttype == PrinterPartType::Material
                         && part.matid == required_mat_id {
                     return Some(cell.clone());
@@ -158,21 +157,21 @@ impl Handler for Server {
                 let clients = self.clients.read().unwrap();
                 let client = clients.get(&token).unwrap();
 
-                let parttype = client.borrow().parttype;
+                let parttype = client.read().unwrap().parttype;
 
                 match parttype {
                     PrinterPartType::Printhead => {
-                        let matid = client.borrow().matid;
+                        let matid = client.read().unwrap().matid;
                         match self.get_mat_src(matid) {
                             Some(mat_src) => {
-                                client.borrow_mut().notify_printhead( eventloop, Some( mat_src.borrow_mut().deref_mut() ) );
+                                client.write().unwrap().notify_printhead( eventloop, Some( mat_src.write().unwrap().deref_mut() ) );
                             },
                             None => {
-                                client.borrow_mut().notify_printhead( eventloop, None );
+                                client.write().unwrap().notify_printhead( eventloop, None );
                             }
                         }
                     },
-                    PrinterPartType::Material  => { client.borrow_mut().notify_material(eventloop, &mut self.continuedelay);  }
+                    PrinterPartType::Material  => { client.write().unwrap().notify_material(eventloop, &mut self.continuedelay);  }
                 };
             }
         }
@@ -183,17 +182,17 @@ impl Handler for Server {
                 if self.check_mat_status() {
                     println!("All material containers refilled!");
                     for cell in self.clients.read().unwrap().values() {
-                        let parttype = cell.borrow().parttype;
-                        let has_bp    = cell.borrow().blueprint.is_some();
+                        let parttype = cell.read().unwrap().parttype;
+                        let has_bp    = cell.read().unwrap().blueprint.is_some();
                         if parttype == PrinterPartType::Printhead && has_bp {
-                            println!("Continuing on printhead {}", cell.borrow().id );
-                            let matid = cell.borrow().matid;
+                            println!("Continuing on printhead {}", cell.read().unwrap().id );
+                            let matid = cell.read().unwrap().matid;
                             match self.get_mat_src(matid) {
                                 Some(mat_src) => {
-                                    cell.borrow_mut().exec_instr( eventloop, Some(mat_src.borrow_mut().deref_mut()) );
+                                    cell.write().unwrap().exec_instr( eventloop, Some(mat_src.write().unwrap().deref_mut()) );
                                 },
                                 None => {
-                                    cell.borrow_mut().exec_instr( eventloop, None );
+                                    cell.write().unwrap().exec_instr( eventloop, None );
                                 }
                             }
                         }
@@ -206,7 +205,7 @@ impl Handler for Server {
             _ => {
                 println!("Timeout while printing, aborting...");
                 let clients = self.clients.read().unwrap();
-                let mut connection = clients.get(&Token(timeout_token)).unwrap().borrow_mut();
+                let mut connection = clients.get(&Token(timeout_token)).unwrap().write().unwrap();
                 connection.set_blueprint(None); //Abort print process
                 connection.abort_benchmark(); //Abort benchmark process
             }

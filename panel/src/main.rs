@@ -29,8 +29,9 @@ fn main() {
 
     let internal_parts = Arc::new(RwLock::new(HashMap::new()));
 
-    /*let restthread = thread::spawn( || {*/ rest::serve( internal_parts.clone() );/* } );*/
-
+    let rparts = internal_parts.clone();
+    let restthread = thread::spawn( move || rest::serve( rparts ) );
+    
     let address = "0.0.0.0:18000".parse::<SocketAddr>().unwrap();
     let mut server = internals::Server {
             socket: TcpListener::bind(&address).unwrap(),

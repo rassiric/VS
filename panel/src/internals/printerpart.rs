@@ -28,6 +28,8 @@ pub struct Printerpart {
     pub benchmarkcnt: i32
 }
 
+unsafe impl Send for Printerpart {}
+unsafe impl Sync for Printerpart {}
 
 impl Printerpart {
     pub fn new(mut socket: TcpStream, id : usize) -> Printerpart{
