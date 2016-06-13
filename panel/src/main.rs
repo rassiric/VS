@@ -30,7 +30,8 @@ fn main() {
     let internal_parts = Arc::new(RwLock::new(HashMap::new()));
 
     let rparts = internal_parts.clone();
-    let restthread = thread::spawn( move || rest::serve( rparts ) );
+    let eventloop_channel = eventloop.channel();
+    let restthread = thread::spawn( move || rest::serve( rparts, eventloop_channel ) );
     
     let address = "0.0.0.0:18000".parse::<SocketAddr>().unwrap();
     let mut server = internals::Server {

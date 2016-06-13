@@ -5,15 +5,13 @@ use hyper::server::{Handler, Request, Response};
 use hyper::mime;
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
+use std::io;
+use std::io::{Write, Read, Cursor};
+use mio;
 use mio::Token;
-use internals::Printerpart;
-use internals::PrinterPartType;
-use std::io::{Write, Read};
+use internals::{Printerpart, PrinterPartType};
 use rustc_serialize::json;
 use rustc_serialize::base64::FromBase64;
-use std::io;
-use std::io::Cursor;
-use std::ops::DerefMut;
 
 #[derive(RustcEncodable)]
 struct Status {
@@ -28,6 +26,7 @@ struct PrintReq {
 
 pub struct PrinterRest {
     pub internals: Arc<RwLock<HashMap<Token, Arc<RwLock<Printerpart>>>>>,
+    evloop_send:   Arc<mio::Sender<Token>>,
     action:        Action,
     buf:           Vec<u8>,
     read_pos:      usize
@@ -40,11 +39,13 @@ enum Action {
 }
 
 impl PrinterRest {
-    pub fn new(internals: Arc<RwLock<HashMap<Token, Arc<RwLock<Printerpart>>>>>) -> Self{
+    pub fn new(internals: Arc<RwLock<HashMap<Token, Arc<RwLock<Printerpart>>>>>,
+            evloop_send: Arc<mio::Sender<Token>>) -> Self{
         PrinterRest {
             internals: internals,
+            evloop_send: evloop_send,
             action:    Action::InvalidRequest,
-            buf:       vec![0;20_000_000],
+            buf:       vec![0;0], //Start with empty read buffer, will be increased when used
             read_pos:  0
         }
     }
@@ -66,8 +67,14 @@ impl PrinterRest {
             return "{ \"success\": false, \"reason\": \"no printhead\" }".to_string();
         }
 
-        printhead.unwrap().write().unwrap().blueprint = Some(Box::new(Cursor::new(bp.clone())));
-        "{ \"success\": true, \"reason\": \"\"}".to_string()
+        let printhead = printhead.unwrap();
+        printhead.write().unwrap().blueprint = Some( Box::new( Cursor::new(bp) ) );
+
+        let printheadid = printhead.read().unwrap().id;
+        match self.evloop_send.send( Token( printheadid ) ) { //Continue 3d print in internal eventloop
+            Ok(_) => "{ \"success\": true, \"reason\": \"\"}".to_string(),
+            Err(msg) => format!("{{\"success\": false, \"reason\": \"notify failed: {:?}\" }}", msg)
+        }
     }
 
     fn get_free_printhead(self : &Self) -> Option<Arc<RwLock<Printerpart>>> {
@@ -118,8 +125,8 @@ impl Handler<HttpStream> for PrinterRest {
 
     fn on_request_readable(&mut self, transport: &mut Decoder<HttpStream>) -> Next {
         if self.read_pos >= self.buf.len() {
-            println!("Request too large!");
-            return Next::end();
+            let newsize = self.buf.len() + 2048;
+            self.buf.resize(newsize, 0); //If buffer is full, resize by 2KB
         }
         match self.action {
             Action::Print => {

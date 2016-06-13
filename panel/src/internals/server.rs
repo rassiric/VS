@@ -126,7 +126,7 @@ impl Server {
 
 impl Handler for Server {
     type Timeout = usize;
-    type Message = ();
+    type Message = Token;
 
     fn ready(&mut self, eventloop: &mut EventLoop<Server>, token: Token, _: EventSet)
     {
@@ -157,8 +157,6 @@ impl Handler for Server {
                 let client = clients.get(&token).unwrap();
 
                 let parttype = client.read().unwrap().parttype;
-
-                //if(client.read().unwrap().socket.)
 
                 match parttype {
                     PrinterPartType::Printhead => {
@@ -211,5 +209,13 @@ impl Handler for Server {
                 connection.abort_benchmark(); //Abort benchmark process
             }
         };
+    }
+    fn notify(&mut self, eventloop: &mut EventLoop<Server>, msg: Token) {
+        //external interface has loaded Blueprint into Printhead
+        //send first command and implement timeout etc.
+        let clients = self.clients.read().unwrap();
+        let printhead = clients.get(&msg).unwrap();
+        printhead.exec_instr( eventloop, None );
+            //First instruction cannot use a Material, since it could not possibly have selected one
     }
 }
