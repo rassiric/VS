@@ -75,7 +75,7 @@ impl Server {
             println!("Job discarded: Please refill material containers first!");
             return;
         }
-         
+
         match self.get_free_printhead(){
             None => {
                 println!("Printhead[s] busy");
@@ -139,7 +139,7 @@ impl Handler for Server {
                 stdin().read_line(&mut input).unwrap();
                 match input.trim() {
                     "p" => {
-                        self.start_print(eventloop);                      
+                        self.start_print(eventloop);
                     },
                     "b" => {
                         self.benchmark(eventloop);
@@ -157,6 +157,8 @@ impl Handler for Server {
                 let client = clients.get(&token).unwrap();
 
                 let parttype = client.read().unwrap().parttype;
+
+                //if(client.read().unwrap().socket.)
 
                 match parttype {
                     PrinterPartType::Printhead => {
@@ -211,4 +213,3 @@ impl Handler for Server {
         };
     }
 }
-
