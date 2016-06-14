@@ -5,16 +5,21 @@ extern crate rustc_serialize;
 mod printer_mgmt;
 mod ui;
 
-use printer_mgmt::Printer;
+use printer_mgmt::core;
+use printer_mgmt::{Printer, Core};
 use std::fs::File;
 use std::path::Path;
 use std::io::{BufReader, BufRead};
+use std::time::Duration;
 use std::sync::{Mutex, Arc};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+use mio::{EventLoop};
 
 static PRINTER_ID_COUNTER : AtomicUsize = ATOMIC_USIZE_INIT;
+
+pub const POLL_TIME_MS : u64 = 2500;
 
 pub fn get_new_printer_id() -> usize {
     PRINTER_ID_COUNTER.fetch_add(1, Ordering::SeqCst)
@@ -54,6 +59,14 @@ fn main() {
 
     {
         let p = printers.lock().unwrap();
-        println!( "{:#?}", p.deref() );
+        println!( "Printers loaded from config, first query done:\n{:#?}", p.deref() );
     }
+
+    let mut eventloop = EventLoop::new().unwrap();
+
+    let mut c = Core::new( printers.clone() );
+
+    eventloop.timeout( core::TimeoutType::PollStatus, Duration::from_millis(POLL_TIME_MS) ).unwrap();
+
+    eventloop.run(&mut c);
 }
