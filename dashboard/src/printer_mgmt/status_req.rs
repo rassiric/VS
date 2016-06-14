@@ -83,7 +83,7 @@ impl hyper::client::Handler<HttpStream> for StatusReq {
     }
 }
 
-pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
+pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) -> Vec<usize>{
     let mut printers_lock = printers.lock().unwrap();
     let mut printers = printers_lock.deref_mut();
 
