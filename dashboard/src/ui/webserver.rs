@@ -20,6 +20,10 @@ struct Templates {
     status_fab_begin : String,
     status_fab_end : String,
     status_printer : String,
+    print :       String,
+    mgmt_begin :  String,
+    mgmt_printer: String,
+    mgmt_end :    String,
 
     reg_fabs:  Regex,
     reg_printers: Regex,
@@ -41,7 +45,12 @@ pub struct WebUi {
 
 enum Action {
     InvalidRequest,
-    GetStatus
+    GetStatus,
+    GetPrint,
+    GetMgmt,
+    Print,
+    AddPrinter,
+    DelPrinter
 }
 
 impl WebUi {
@@ -83,9 +92,7 @@ impl WebUi {
 
         for fab in fabs.iter() {
             outp.write_all( self.templates.reg_fab.replace_all(&*self.templates.status_fab_begin, &*fab.to_string()).as_bytes() );
-            println!("{}", fab);
             for printer in printers.values() {
-                println!("#{}", printer.id);
                 if printer.fabid != *fab { continue; }
                 outp.write_all( self.templates.reg_printer.replace_all(
                                 &*self.templates.reg_status.replace_all(
@@ -93,9 +100,29 @@ impl WebUi {
                                     &*format!("{:#?}", printer.status)
                                 ), &*printer.id.to_string() ).as_bytes() );
             }
-            println!("/{}", fab);
             outp.write_all( self.templates.status_fab_end.as_bytes() );
         }
+    }
+
+    fn get_print(&mut self, outp:&mut Write) {
+        outp.write_all( self.templates.print.as_bytes() );
+    }
+
+    fn get_mgmt(&mut self, outp:&mut Write) {
+        let mut printers_lock = self.printers.lock().unwrap();
+        let mut printers = printers_lock.deref();
+
+        outp.write_all( self.templates.mgmt_begin.as_bytes() );
+
+        for printer in printers.values() {
+            outp.write_all( &* self.templates.reg_status.replace_all(
+                &* self.templates.reg_printer.replace_all(
+                    &*self.templates.mgmt_printer,
+                    &*printer.id.to_string()
+                ), &*format!("{:#?}", printer) ).as_bytes() );
+        }
+
+        outp.write_all( self.templates.mgmt_end.as_bytes() );
     }
 }
 
@@ -108,6 +135,18 @@ impl Handler<HttpStream> for WebUi {
                     self.action = Action::GetStatus;
                     Next::write()
                 },
+                (&Get, "/mgmt") => {
+                    self.action = Action::GetMgmt;
+                    Next::write()
+                },
+                (&Post, "/print") => {
+                    self.action = Action::Print;
+                    Next::read()
+                },
+                (&Get, "/print") => {
+                    self.action = Action::GetPrint;
+                    Next::write()
+                },
                 _ => Next::write(), //InvalidRequest
             },
             _ => Next::write(), //InvalidRequest
@@ -115,7 +154,24 @@ impl Handler<HttpStream> for WebUi {
     }
 
     fn on_request_readable(&mut self, transport: &mut Decoder<HttpStream>) -> Next {
-        unimplemented!()
+        if self.read_pos >= self.buf.len() {
+            let newsize = self.buf.len() + 2048;
+            self.buf.resize(newsize, 0); //If buffer is full, resize by 2KB
+        }
+        match transport.read(&mut self.buf[self.read_pos .. ]) {
+            Ok(0) => Next::write(),
+            Ok(n) => {
+                self.read_pos += n;
+                Next::read_and_write()
+            }
+            Err(e) => match e.kind() {
+                io::ErrorKind::WouldBlock => Next::read_and_write(),
+                _ => {
+                    println!("read error {:?}", e);
+                    Next::end()
+                }
+            }
+        }
     }
 
     fn on_response(&mut self, res: &mut Response) -> Next {
@@ -141,8 +197,19 @@ impl Handler<HttpStream> for WebUi {
             },
             Action::GetStatus => {
                 self.get_status( transport );
+            },
+            Action::GetPrint => {
+                self.get_print( transport );
+            },
+            Action::GetMgmt => {
+                self.get_mgmt( transport );
+            },
+            Action::Print => {
+                transport.write_all("<pre>".as_bytes());
+                transport.write_all(&self.buf);
+                transport.write_all("</pre>".as_bytes());
             }
-            //_ => unimplemented!()
+            _ => unimplemented!()
         };
         let _ = transport.write_all( self.templates.page_end.as_bytes() );
         Next::end()
@@ -158,6 +225,10 @@ pub fn serve(printers: Arc<Mutex<HashMap<usize, Printer>>>) {
         status_fab_begin : String::new(),
         status_fab_end : String::new(),
         status_printer : String::new(),
+        print :     String::new(),
+        mgmt_begin : String::new(),
+        mgmt_printer : String::new(),
+        mgmt_end :  String::new(),
 
         reg_fabs :      Regex::new(r"\{fabs\}").unwrap(),
         reg_printers :  Regex::new(r"\{printers\}").unwrap(),
@@ -182,8 +253,16 @@ pub fn serve(printers: Arc<Mutex<HashMap<usize, Printer>>>) {
         .read_to_string( &mut temps.status_fab_end );
     File::open("uitemplates/status_printer.html").expect("Cannot open template status_printer.html!")
         .read_to_string( &mut temps.status_printer );
+    File::open("uitemplates/print.html").expect("Cannot open template print.html!")
+        .read_to_string( &mut temps.print );
+    File::open("uitemplates/mgmt_begin.html").expect("Cannot open template mgmt_begin.html!")
+        .read_to_string( &mut temps.mgmt_begin );
+    File::open("uitemplates/mgmt_end.html").expect("Cannot open template mgmt_end.html!")
+        .read_to_string( &mut temps.mgmt_end );
+    File::open("uitemplates/mgmt_printer.html").expect("Cannot open template mgmt_printer.html!")
+        .read_to_string( &mut temps.mgmt_printer );
 
-    
+
     let temps = Arc::new(temps);
 
     let server = Server::http(&"0.0.0.0:8080".parse().unwrap()).unwrap();

@@ -13,19 +13,22 @@ use hyper::Url;
 use rustc_serialize::json;
 use printer_mgmt::printer::{Status, Printer};
 use std::str::from_utf8;
+use rustc_serialize::base64::ToBase64;
 
-pub struct StatusReq {
-    result_pipe: mpsc::Sender<Status>,
-    buf : Vec<u8>,
-    read_pos : usize
+#[derive(RustcEncodable)]
+struct PrintReq {
+    blueprint: String
 }
 
-impl StatusReq {
+pub struct PrintOrder {
+    result_pipe: mpsc::Sender<Status>,
+    req: PrintReq
+}
+
+impl PrintOrder {
     pub fn new(result_pipe : mpsc::Sender<Status>) -> Self {
-        StatusReq {
-            result_pipe : result_pipe,
-            buf : vec![0;64],
-            read_pos : 0
+        PrintOrder {
+            result_pipe : result_pipe
         }
     }
 }
@@ -34,10 +37,10 @@ fn read() -> Next {//Helper to generate a read-request with timeout
     Next::read().timeout(Duration::from_millis(300))
 }
 
-impl hyper::client::Handler<HttpStream> for StatusReq {
+impl hyper::client::Handler<HttpStream> for PrintOrder {
     fn on_request(&mut self, req: &mut Request) -> Next {
         req.headers_mut().set(Connection::close());
-        read()
+        Next::write_and_read();
     }
 
     fn on_request_writable(&mut self, _encoder: &mut Encoder<HttpStream>) -> Next {
@@ -95,7 +98,7 @@ pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
 
         let url = Url::parse( &*format!("http://{}/status", printer.address) ).unwrap();
 
-        if client.request( url, StatusReq::new(tx) ).is_err() {
+        if client.request( url, PrintOrder::new(tx) ).is_err() {
             panic!("Sending status request failed!");
         }
 

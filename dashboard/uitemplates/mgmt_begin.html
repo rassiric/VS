@@ -1,0 +1,23 @@
+<div class="page-header">
+    <h1>system management</h1>
+</div>
+<div class="panel panel-success">
+  <div class="panel-heading">
+    <h3 class="panel-title">add printer</h3>
+  </div>
+  <div class="panel-body">
+    <form method="POST" action="/mgmt/add">
+      <div class="input-group">
+        <input type="text" class="form-control" placeholder="Fab-ID" name="fab" />
+        <input type="text" class="form-control" placeholder="IP" name="ip"/>
+        <span class="input-group-btn">
+          <button class="btn btn-success" type="submit">Add</button>
+        </span>
+      </div>
+    </form>
+  </div>
+</div>
+<div class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">printers</h3>
+  </div>

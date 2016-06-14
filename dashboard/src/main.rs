@@ -54,10 +54,10 @@ fn load_configured_printers(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
 }
 
 fn main() {
-    let jobqueue : Arc<Vec<String>> = Arc::new( Vec::new() ); //Access is protected by printers Mutex per convention  
+    let jobqueue : Arc<Vec<String>> = Arc::new( Vec::new() ); //Access is protected by printers Mutex per convention
     let printers : Arc<Mutex<HashMap<usize, Printer>>> = Arc::new( Mutex::new( HashMap::new() ) );
     load_configured_printers( printers.clone() );
-    
+
     let ui_printers = printers.clone();
     let _uithread = thread::spawn( move || ui::serve( ui_printers ) );
 
@@ -71,7 +71,7 @@ fn main() {
 
     let mut eventloop = EventLoop::new().unwrap();
 
-    let mut c = Core::new( printers.clone() );
+    let mut c = Core::new( printers.clone(), jobqueue.clone() );
 
     eventloop.timeout( core::TimeoutType::PollStatus, Duration::from_millis(POLL_TIME_MS) ).unwrap();
 
