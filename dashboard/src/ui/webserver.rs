@@ -11,6 +11,7 @@ use std::fs::File;
 use std::ops::{Deref, Add};
 use printer_mgmt::Printer;
 use regex::Regex;
+use std::str::from_utf8;
 
 struct Templates {
     page_begin :  String,
@@ -124,6 +125,14 @@ impl WebUi {
 
         outp.write_all( self.templates.mgmt_end.as_bytes() );
     }
+
+    fn request_split(&mut self){
+        let reqtext = from_utf8(&self.buf[0 .. self.read_pos]).unwrap();
+        let v: Vec<&str> = reqtext.split(|c| c == '=' || c == '&').collect();
+        //println!("Printing: {:?}", v);
+
+        //assert_eq!(v, ["abc", "def", "ghi"]);
+    }
 }
 
 impl Handler<HttpStream> for WebUi {
@@ -208,6 +217,7 @@ impl Handler<HttpStream> for WebUi {
                 transport.write_all("<pre>".as_bytes());
                 transport.write_all(&self.buf);
                 transport.write_all("</pre>".as_bytes());
+                self.request_split();
             }
             _ => unimplemented!()
         };
