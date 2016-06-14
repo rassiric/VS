@@ -31,7 +31,7 @@ impl StatusReq {
 }
 
 fn read() -> Next {//Helper to generate a read-request with timeout
-    Next::read().timeout(Duration::from_secs(10))
+    Next::read().timeout(Duration::from_millis(300))
 }
 
 impl hyper::client::Handler<HttpStream> for StatusReq {

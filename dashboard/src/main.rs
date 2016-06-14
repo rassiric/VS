@@ -1,6 +1,7 @@
 extern crate hyper;
 extern crate mio;
 extern crate rustc_serialize;
+extern crate regex;
 
 mod printer_mgmt;
 mod ui;
@@ -11,6 +12,7 @@ use std::fs::File;
 use std::path::Path;
 use std::io::{BufReader, BufRead};
 use std::time::Duration;
+use std::thread;
 use std::sync::{Mutex, Arc};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
@@ -54,6 +56,9 @@ fn load_configured_printers(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
 fn main() {
     let printers : Arc<Mutex<HashMap<usize, Printer>>> = Arc::new( Mutex::new( HashMap::new() ) );
     load_configured_printers( printers.clone() );
+    
+    let ui_printers = printers.clone();
+    let _uithread = thread::spawn( move || ui::serve( ui_printers ) );
 
     printer_mgmt::update_status( printers.clone() );
 
@@ -61,6 +66,7 @@ fn main() {
         let p = printers.lock().unwrap();
         println!( "Printers loaded from config, first query done:\n{:#?}", p.deref() );
     }
+
 
     let mut eventloop = EventLoop::new().unwrap();
 

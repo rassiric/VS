@@ -32,7 +32,7 @@ impl Handler for Core {
                 eventloop.timeout( TimeoutType::PollStatus, Duration::from_millis(super::super::POLL_TIME_MS) ).unwrap();
                 {
                     let p = self.printers.lock().unwrap();
-                    println!( "Printers loaded from config, first query done:\n{:#?}", p.deref() );
+                    println!( "Poll result:\n{:#?}", p.deref() );
                 }
             }
         }

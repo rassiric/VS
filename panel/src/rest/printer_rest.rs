@@ -150,7 +150,7 @@ impl Handler<HttpStream> for PrinterRest {
     }
 
     fn on_response(&mut self, res: &mut Response) -> Next {
-	res.headers_mut().set( ContentType(
+	    res.headers_mut().set( ContentType(
             mime::Mime( mime::TopLevel::Application, mime::SubLevel::Json,
                 vec![(mime::Attr::Charset, mime::Value::Utf8)] ) ) );
         match self.action {
@@ -167,15 +167,15 @@ impl Handler<HttpStream> for PrinterRest {
     fn on_response_writable(&mut self, transport: &mut Encoder<HttpStream>) -> Next {
         match self.action {
             Action::InvalidRequest => {
-                transport.write(b"{ \"error\": \"invalidrequest\" }").unwrap();
+                transport.write_all(b"{ \"error\": \"invalidrequest\" }").unwrap();
                 Next::end()
             },
             Action::GetStatus => {
-                transport.write( self.get_status( ).as_bytes() ).unwrap();
+                transport.write_all( self.get_status( ).as_bytes() ).unwrap();
                 Next::end()
             }
             Action::Print => {
-                transport.write( self.start_print( ).as_bytes() ).unwrap();
+                transport.write_all( self.start_print( ).as_bytes() ).unwrap();
                 Next::end()
             }
             //_ => unimplemented!()

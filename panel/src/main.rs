@@ -31,7 +31,7 @@ fn main() {
 
     let rparts = internal_parts.clone();
     let eventloop_channel = eventloop.channel();
-    let restthread = thread::spawn( move || rest::serve( rparts, eventloop_channel ) );
+    let _restthread = thread::spawn( move || rest::serve( rparts, eventloop_channel ) );
     
     let address = "0.0.0.0:18000".parse::<SocketAddr>().unwrap();
     let mut server = internals::Server {
