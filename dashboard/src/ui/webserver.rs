@@ -9,9 +9,10 @@ use std::io;
 use std::io::{Write, Read};
 use std::fs::File;
 use std::ops::{Deref, Add};
-use printer_mgmt::Printer;
+use printer_mgmt::{Printer, printbp};
 use regex::Regex;
 use std::str::from_utf8;
+use std::str::FromStr;
 
 struct Templates {
     page_begin :  String,
@@ -38,6 +39,7 @@ struct Templates {
 
 pub struct WebUi {
     printers:      Arc<Mutex<HashMap<usize, Printer>>>,
+    job_queue :    Arc<Mutex<Vec<String>>>,
     action:        Action,
     buf:           Vec<u8>,
     read_pos:      usize,
@@ -55,9 +57,12 @@ enum Action {
 }
 
 impl WebUi {
-    fn new(printers : Arc<Mutex<HashMap<usize, Printer>>>, templates: Arc<Templates>) -> Self{
+    fn new(printers : Arc<Mutex<HashMap<usize, Printer>>>,
+        job_queue : Arc<Mutex<Vec<String>>>,
+        templates: Arc<Templates>) -> Self{
         WebUi {
             printers:  printers,
+            job_queue: job_queue,
             action:    Action::InvalidRequest,
             buf:       vec![0;0], //Start with empty read buffer, will be increased when used
             read_pos:  0,
@@ -126,12 +131,12 @@ impl WebUi {
         outp.write_all( self.templates.mgmt_end.as_bytes() );
     }
 
-    fn request_split(&mut self){
+    fn print(&mut self, outp:&mut Write){
         let reqtext = from_utf8(&self.buf[0 .. self.read_pos]).unwrap();
         let v: Vec<&str> = reqtext.split(|c| c == '=' || c == '&').collect();
-        //println!("Printing: {:?}", v);
 
-        //assert_eq!(v, ["abc", "def", "ghi"]);
+        printbp(self.printers.clone(), self.job_queue.clone(),
+            v[1].parse().unwrap(), v[3].to_string());
     }
 }
 
@@ -213,11 +218,8 @@ impl Handler<HttpStream> for WebUi {
             Action::GetMgmt => {
                 self.get_mgmt( transport );
             },
-            Action::Print => {
-                transport.write_all("<pre>".as_bytes());
-                transport.write_all(&self.buf);
-                transport.write_all("</pre>".as_bytes());
-                self.request_split();
+            Action::Print => {;
+                self.print( transport );
             }
             _ => unimplemented!()
         };
@@ -226,7 +228,8 @@ impl Handler<HttpStream> for WebUi {
     }
 }
 
-pub fn serve(printers: Arc<Mutex<HashMap<usize, Printer>>>) {
+pub fn serve(printers: Arc<Mutex<HashMap<usize, Printer>>>,
+    job_queue : Arc<Mutex<Vec<String>>>) {
     let mut temps = Templates {
         page_begin: String::new(),
         page_end:   String::new(),
@@ -276,7 +279,8 @@ pub fn serve(printers: Arc<Mutex<HashMap<usize, Printer>>>) {
     let temps = Arc::new(temps);
 
     let server = Server::http(&"0.0.0.0:8080".parse().unwrap()).unwrap();
-    let (_, serverloop) = server.handle(|_| WebUi::new( printers.clone(), temps.clone() ) ).unwrap();
+    let (_, serverloop) = server.handle(|_| WebUi::new( printers.clone(),
+        job_queue.clone(), temps.clone() ) ).unwrap();
 
     serverloop.run();
 }

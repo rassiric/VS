@@ -3,7 +3,7 @@ use hyper::{Decoder, Encoder, Next};
 use hyper::client::{Client, Request, Response, DefaultTransport as HttpStream};
 use hyper::header::Connection;
 use std::io;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::ops::DerefMut;
 use std::sync::{Mutex, Arc};
 use std::sync::mpsc;
@@ -11,24 +11,37 @@ use std::time::Duration;
 use std::collections::HashMap;
 use hyper::Url;
 use rustc_serialize::json;
-use printer_mgmt::printer::{Status, Printer};
+//use printer_mgmt::printer::{Status, Printer};
 use std::str::from_utf8;
-use rustc_serialize::base64::ToBase64;
+use rustc_serialize::base64::{ToBase64, STANDARD};
 
 #[derive(RustcEncodable)]
 struct PrintReq {
     blueprint: String
 }
 
+#[derive(RustcDecodable)]
+pub struct ReqRes {
+    success: bool,
+    reason: String
+}
+
 pub struct PrintOrder {
-    result_pipe: mpsc::Sender<Status>,
-    req: PrintReq
+    result_pipe: mpsc::Sender<ReqRes>,
+    req: PrintReq,
+    buf : Vec<u8>,
+    read_pos : usize
 }
 
 impl PrintOrder {
-    pub fn new(result_pipe : mpsc::Sender<Status>) -> Self {
+    pub fn new(result_pipe : mpsc::Sender<ReqRes>, bp : &mut Read ) -> Self {
+        let mut bpdata = vec![0;0];
+        bp.read_to_end(&mut bpdata);
         PrintOrder {
-            result_pipe : result_pipe
+            result_pipe : result_pipe,
+            req : PrintReq { blueprint : bpdata.to_base64(STANDARD) },
+            buf : vec![0;64],
+            read_pos : 0
         }
     }
 }
@@ -40,11 +53,13 @@ fn read() -> Next {//Helper to generate a read-request with timeout
 impl hyper::client::Handler<HttpStream> for PrintOrder {
     fn on_request(&mut self, req: &mut Request) -> Next {
         req.headers_mut().set(Connection::close());
-        Next::write_and_read();
+        Next::read_and_write()
     }
 
-    fn on_request_writable(&mut self, _encoder: &mut Encoder<HttpStream>) -> Next {
-        unimplemented!();
+    fn on_request_writable(&mut self, transport: &mut Encoder<HttpStream>) -> Next {
+        let request_json = json::encode(&self.req).unwrap();
+        transport.write_all( request_json.as_bytes() );
+        read()
     }
 
     fn on_response(&mut self, _res: Response) -> Next {
@@ -59,8 +74,7 @@ impl hyper::client::Handler<HttpStream> for PrintOrder {
         match transport.read(&mut self.buf[self.read_pos .. ]) {
             Ok(0) => {
                 let res_text = from_utf8(&self.buf[0 .. self.read_pos]).unwrap();
-                //println!("decoding '{}' / {:?}", &res_text, res_text.as_bytes() );
-                let res : Status = json::decode(res_text).unwrap();
+                let res : ReqRes = json::decode(res_text).unwrap();
                 self.result_pipe.send(res).unwrap();
                 Next::end()
             }
@@ -72,7 +86,8 @@ impl hyper::client::Handler<HttpStream> for PrintOrder {
                 io::ErrorKind::WouldBlock => read(),
                 _ => {
                     println!("read error {:?}", e);
-                    self.result_pipe.send(Status{busy: true, matempty: false}).unwrap();
+                    self.result_pipe.send(
+                        ReqRes{success: false, reason: "read error".to_string()}).unwrap();
                     Next::end()
                 }
             }
@@ -81,33 +96,27 @@ impl hyper::client::Handler<HttpStream> for PrintOrder {
 
     fn on_error(&mut self, err: hyper::Error) -> Next {
         println!("ERROR: {}", err);
-        self.result_pipe.send(Status{busy: true, matempty: false}).unwrap();
+        self.result_pipe.send(
+            ReqRes{success: false, reason: format!("read error: {}", err)}).unwrap();
         Next::remove()
     }
 }
 
-pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
-    let mut printers_lock = printers.lock().unwrap();
-    let mut printers = printers_lock.deref_mut();
-
-    let mut results = HashMap::<usize, mpsc::Receiver<Status>>::new();
+pub fn printbp(printer_addr : &String, blueprint : &mut Read) -> Result<(), String> {
     let client = Client::new().unwrap();
+    let (tx, rx) = mpsc::channel();
 
-    for (id, printer) in printers.iter() {
-        let (tx, rx) = mpsc::channel();
+    let url = Url::parse( &*format!("http://{}/status", printer_addr) ).unwrap();
 
-        let url = Url::parse( &*format!("http://{}/status", printer.address) ).unwrap();
-
-        if client.request( url, PrintOrder::new(tx) ).is_err() {
-            panic!("Sending status request failed!");
-        }
-
-        results.insert( *id, rx );
+    if client.request( url, PrintOrder::new(tx, blueprint) ).is_err() {
+        return Err( "Sending status request failed!".to_string() );
     }
 
-    for (id, result) in &results {
-        printers.get_mut(id).unwrap().status = result.recv().unwrap();
+    let response = rx.recv().unwrap();
+    if response.success {
+        Ok( () )
     }
-
-    client.close();
+    else {
+        Err( response.reason )
+    }
 }
