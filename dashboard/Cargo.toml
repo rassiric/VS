@@ -4,4 +4,6 @@ version = "0.1.0"
 authors = ["Ramiz Bahrami <ramesbahrami@gmail.com>", "Adrian Müller <adrian@mueller-lindenfels.de>"]
 
 [dependencies]
+mio = { git = "https://github.com/carllerche/mio" }
 hyper = { git = "https://github.com/hyperium/hyper" }
+rustc-serialize = "0.3.*"

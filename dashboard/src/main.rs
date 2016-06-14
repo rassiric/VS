@@ -1,71 +1,59 @@
 extern crate hyper;
+extern crate mio;
+extern crate rustc_serialize;
 
-use hyper::client::{Client, Request, Response, DefaultTransport as HttpStream};
-use hyper::header::Connection;
-use hyper::{Decoder, Encoder, Next};
-use std::sync::mpsc;
-use std::io;
-use std::time::Duration;
-use hyper::Url;
+mod printer_mgmt;
+mod ui;
 
+use printer_mgmt::Printer;
+use std::fs::File;
+use std::path::Path;
+use std::io::{BufReader, BufRead};
+use std::sync::{Mutex, Arc};
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 
-struct Dump(mpsc::Sender<()>);
+static PRINTER_ID_COUNTER : AtomicUsize = ATOMIC_USIZE_INIT;
 
-impl Drop for Dump {
-    fn drop(&mut self) {
-        let _ = self.0.send(());
-    }
+pub fn get_new_printer_id() -> usize {
+    PRINTER_ID_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-fn read() -> Next {
-    Next::read().timeout(Duration::from_secs(10))
-}
-
-impl hyper::client::Handler<HttpStream> for Dump {
-    fn on_request(&mut self, req: &mut Request) -> Next {
-        req.headers_mut().set(Connection::close());
-        read()
+fn load_configured_printers(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
+    if ! Path::new("printers.conf").exists() {
+        return;
     }
 
-    fn on_request_writable(&mut self, _encoder: &mut Encoder<HttpStream>) -> Next {
-        read()
-    }
+    let mut printers_lock = printers.lock().unwrap();
+    let mut printers = printers_lock.deref_mut();
 
-    fn on_response(&mut self, res: Response) -> Next {
-        println!("Response: {}", res.status());
-        println!("Headers:\n{}", res.headers());
-        read()
-    }
-
-    fn on_response_readable(&mut self, decoder: &mut Decoder<HttpStream>) -> Next {
-        match io::copy(decoder, &mut io::stdout()) {
-            Ok(0) => Next::end(),
-            Ok(_) => read(),
-            Err(e) => match e.kind() {
-                io::ErrorKind::WouldBlock => Next::read(),
-                _ => {
-                    println!("ERROR: {}", e);
-                    Next::end()
-                }
+    let conf_file = File::open("printers.conf").unwrap();
+    let mut conf = BufReader::new(conf_file);
+    let mut conf_line = String::new();
+    loop {
+        match conf.read_line(&mut conf_line) {
+            Ok(0) => return,
+            Ok(_) => {
+                let (fab, addr) = conf_line.split_at( conf_line.find("\t").expect("Invalid config file: Line without TAB!") );
+                let printerid = get_new_printer_id();
+                printers.insert( printerid,
+                    Printer::new( fab.parse().expect("Invalid config file: Non-numeric fab id!"),
+                        printerid, addr.trim().to_string() ) );
             }
+            Err(e) => panic!("Error while reading configured printers: {}", e)
         }
     }
-
-    fn on_error(&mut self, err: hyper::Error) -> Next {
-        println!("ERROR: {}", err);
-        Next::remove()
-    }
 }
 
-
 fn main() {
-    let (tx, rx) = mpsc::channel();
-    let url = Url::parse("https://0wl.eu/vs.json").unwrap();
-    let client = Client::new().unwrap();
+    let printers : Arc<Mutex<HashMap<usize, Printer>>> = Arc::new( Mutex::new( HashMap::new() ) );
+    load_configured_printers( printers.clone() );
 
-    client.request(url, Dump(tx));
+    printer_mgmt::update_status( printers.clone() );
 
-    // wait till done
-    let _  = rx.recv();
-    client.close();
+    {
+        let p = printers.lock().unwrap();
+        println!( "{:#?}", p.deref() );
+    }
 }

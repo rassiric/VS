@@ -7,4 +7,4 @@ authors = ["Ramiz Bahrami <ramesbahrami@gmail.com>", "Adrian Müller <adrian@mue
 mio = { git = "https://github.com/carllerche/mio" }
 hyper = { git = "https://github.com/hyperium/hyper" }
 time = "0.1"
-rustc-serialize = "0.3.19"
+rustc-serialize = "0.3.*"

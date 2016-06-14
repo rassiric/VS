@@ -215,7 +215,7 @@ impl Handler for Server {
         //send first command and implement timeout etc.
         let clients = self.clients.read().unwrap();
         let printhead = clients.get(&msg).unwrap();
-        printhead.exec_instr( eventloop, None );
+        printhead.write().unwrap().exec_instr( eventloop, None );
             //First instruction cannot use a Material, since it could not possibly have selected one
     }
 }
