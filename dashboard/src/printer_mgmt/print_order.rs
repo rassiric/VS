@@ -106,7 +106,7 @@ pub fn printbp(printer_addr : &String, blueprint : &mut Read) -> Result<(), Stri
     let client = Client::new().unwrap();
     let (tx, rx) = mpsc::channel();
 
-    let url = Url::parse( &*format!("http://{}/status", printer_addr) ).unwrap();
+    let url = Url::parse( &*format!("http://{}/print", printer_addr) ).unwrap();
 
     if client.request( url, PrintOrder::new(tx, blueprint) ).is_err() {
         return Err( "Sending status request failed!".to_string() );

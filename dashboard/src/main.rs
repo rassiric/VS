@@ -54,7 +54,7 @@ fn load_configured_printers(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
 }
 
 fn main() {
-    let jobqueue : Arc<Mutex<Vec<String>>> = Arc::new( Mutex::new( Vec::new()) ); //Access is protected by printers Mutex per convention
+    let jobqueue : Arc<Mutex<Vec<(usize, String)>>> = Arc::new( Mutex::new( Vec::new()) ); //Access is protected by printers Mutex per convention
     let printers : Arc<Mutex<HashMap<usize, Printer>>> = Arc::new( Mutex::new( HashMap::new() ) );
     load_configured_printers( printers.clone() );
 

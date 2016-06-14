@@ -39,7 +39,7 @@ struct Templates {
 
 pub struct WebUi {
     printers:      Arc<Mutex<HashMap<usize, Printer>>>,
-    job_queue :    Arc<Mutex<Vec<String>>>,
+    job_queue :    Arc<Mutex<Vec<(usize, String)>>>,
     action:        Action,
     buf:           Vec<u8>,
     read_pos:      usize,
@@ -58,7 +58,7 @@ enum Action {
 
 impl WebUi {
     fn new(printers : Arc<Mutex<HashMap<usize, Printer>>>,
-        job_queue : Arc<Mutex<Vec<String>>>,
+        job_queue : Arc<Mutex<Vec<(usize, String)>>>,
         templates: Arc<Templates>) -> Self{
         WebUi {
             printers:  printers,
@@ -135,8 +135,11 @@ impl WebUi {
         let reqtext = from_utf8(&self.buf[0 .. self.read_pos]).unwrap();
         let v: Vec<&str> = reqtext.split(|c| c == '=' || c == '&').collect();
 
-        printbp(self.printers.clone(), self.job_queue.clone(),
-            v[1].parse().unwrap(), v[3].to_string());
+        match printbp(self.printers.clone(), self.job_queue.clone(),
+            v[1].parse().unwrap(), v[3].to_string()) {
+                Ok(_) => { outp.write(b"Printing..."); }
+                Err(err) => {}
+            }
     }
 }
 
@@ -229,7 +232,7 @@ impl Handler<HttpStream> for WebUi {
 }
 
 pub fn serve(printers: Arc<Mutex<HashMap<usize, Printer>>>,
-    job_queue : Arc<Mutex<Vec<String>>>) {
+    job_queue : Arc<Mutex<Vec<(usize, String)>>>) {
     let mut temps = Templates {
         page_begin: String::new(),
         page_end:   String::new(),

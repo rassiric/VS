@@ -16,7 +16,7 @@ use std::borrow::BorrowMut;
 use std::path::Path;
 
 pub fn printbp(printers : Arc<Mutex<HashMap<usize, Printer>>>,
-    job_queue : Arc<Mutex<Vec<String>>>,
+    job_queue : Arc<Mutex<Vec<(usize, String)>>>,
     fab : usize, bpname : String) -> Result<(), String> {
     let filename = format!("blueprints/{}.3dbp", bpname);
 
@@ -31,11 +31,11 @@ pub fn printbp(printers : Arc<Mutex<HashMap<usize, Printer>>>,
         if printer.fabid != fab || printer.status.busy || printer.status.matempty {
             continue;
         }
-        let mut bpfile = File::open(bpname).unwrap();
+        let mut bpfile = File::open(filename).unwrap();
         printer.status = Status { busy: true, matempty: false };
 
         return print_order::printbp(&printer.address, &mut bpfile);
     }
-    job_queue.lock().unwrap().deref_mut().push(bpname.to_string());
+    job_queue.lock().unwrap().deref_mut().push(( fab,bpname.to_string()));
     Ok(())
 }
