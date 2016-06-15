@@ -53,6 +53,7 @@ fn read() -> Next {//Helper to generate a read-request with timeout
 impl hyper::client::Handler<HttpStream> for PrintOrder {
     fn on_request(&mut self, req: &mut Request) -> Next {
         req.headers_mut().set(Connection::close());
+        req.set_method(hyper::method::Method::Post);
         Next::read_and_write()
     }
 

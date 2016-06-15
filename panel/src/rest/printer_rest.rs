@@ -12,6 +12,7 @@ use mio::Token;
 use internals::{Printerpart, PrinterPartType};
 use rustc_serialize::json;
 use rustc_serialize::base64::FromBase64;
+use std::str::from_utf8;
 
 #[derive(RustcEncodable)]
 struct Status {
@@ -59,8 +60,9 @@ impl PrinterRest {
     }
 
     fn start_print(&mut self) -> String {
-        let reqtext = String::from_utf8(self.buf.clone()).unwrap();
-        let req : PrintReq = json::decode(&reqtext).unwrap();
+        let reqtext = from_utf8(&self.buf[0 .. self.read_pos]).unwrap();
+        //println!("{}",reqtext);
+        let req : PrintReq = json::decode(reqtext).unwrap();
         let bp = req.blueprint.from_base64().unwrap();
         let printhead = self.get_free_printhead();
         if printhead.is_none() {
