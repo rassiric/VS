@@ -4,11 +4,8 @@ use hyper::client::{Client, Request, Response, DefaultTransport as HttpStream};
 use hyper::header::Connection;
 use std::io;
 use std::io::{Read, Write};
-use std::ops::DerefMut;
-use std::sync::{Mutex, Arc};
 use std::sync::mpsc;
 use std::time::Duration;
-use std::collections::HashMap;
 use hyper::Url;
 use rustc_serialize::json;
 //use printer_mgmt::printer::{Status, Printer};
@@ -36,7 +33,7 @@ pub struct PrintOrder {
 impl PrintOrder {
     pub fn new(result_pipe : mpsc::Sender<ReqRes>, bp : &mut Read ) -> Self {
         let mut bpdata = vec![0;0];
-        bp.read_to_end(&mut bpdata);
+        bp.read_to_end(&mut bpdata).expect("Cannot read blueprint!");
         PrintOrder {
             result_pipe : result_pipe,
             req : PrintReq { blueprint : bpdata.to_base64(STANDARD) },
@@ -59,7 +56,15 @@ impl hyper::client::Handler<HttpStream> for PrintOrder {
 
     fn on_request_writable(&mut self, transport: &mut Encoder<HttpStream>) -> Next {
         let request_json = json::encode(&self.req).unwrap();
-        transport.write_all( request_json.as_bytes() );
+        let result = transport.write_all( request_json.as_bytes() );
+        if result.is_err() {
+            let res = ReqRes {
+                success: false,
+                reason: format!("Unable to write request: {}", result.err().unwrap() )
+            };
+            self.result_pipe.send(res).unwrap();
+            return Next::end();
+        }
         read()
     }
 

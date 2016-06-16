@@ -1,11 +1,11 @@
 <div class="well">
-    {status}
-</div>
-<div class="floatright">
-  <form method="POST" action="/mgmt/delete">
-    <input class="btn btn-danger" type="submit">
-      <span class="glyphicon glyphicon-remove"></span>
-    </input>
-    <input type="hidden" name="id" value="{printer}" />
-  </form>
+  {status}
+  <div class="floatbtn">
+    <form method="POST" action="/mgmt/delete">
+      <button class="btn btn-danger" type="submit">
+        <span class="glyphicon glyphicon-remove"></span>
+      </button>
+      <input type="hidden" name="id" value="{printer}" />
+    </form>
+  </div>
 </div>

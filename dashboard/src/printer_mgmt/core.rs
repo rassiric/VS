@@ -1,8 +1,8 @@
 use std::sync::{Mutex, Arc};
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::time::Duration;
-use mio::{Handler, Timeout, EventLoop};
+use mio::{Handler, EventLoop};
 use printer_mgmt::printbp;
 use super::Printer;
 
@@ -38,9 +38,12 @@ impl Handler for Core {
                     let p = self.printers.lock().unwrap();
                     println!( "Poll result:\n{:#?}", p.deref() );
                 }
-                let mut jobs = self.job_queue.lock().unwrap();
-                let queue_copy = jobs.clone();
-                jobs.clear();
+                let queue_copy;
+                {
+                    let mut jobs = self.job_queue.lock().unwrap();
+                    queue_copy = jobs.clone();
+                    jobs.clear();
+                }
                 for (fab, job) in queue_copy {
                     printbp(self.printers.clone(), self.job_queue.clone(), fab, job);
                 }

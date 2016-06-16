@@ -76,5 +76,5 @@ fn main() {
 
     eventloop.timeout( core::TimeoutType::PollStatus, Duration::from_millis(POLL_TIME_MS) ).unwrap();
 
-    eventloop.run(&mut c);
+    eventloop.run(&mut c).unwrap();
 }

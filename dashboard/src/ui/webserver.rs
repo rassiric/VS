@@ -8,11 +8,11 @@ use std::collections::HashMap;
 use std::io;
 use std::io::{Write, Read};
 use std::fs::File;
-use std::ops::{Deref, Add};
+use std::ops::{Deref, DerefMut};
 use printer_mgmt::{Printer, printbp};
 use regex::Regex;
 use std::str::from_utf8;
-use std::str::FromStr;
+use super::super::get_new_printer_id;
 
 struct Templates {
     page_begin :  String,
@@ -71,8 +71,8 @@ impl WebUi {
     }
 
     fn get_status(&mut self, outp:&mut Write) {
-        let mut printers_lock = self.printers.lock().unwrap();
-        let mut printers = printers_lock.deref();
+        let printers_lock = self.printers.lock().unwrap();
+        let printers = printers_lock.deref();
 
         let mut fabs : Vec<usize> = Vec::new();
         let mut count_avail = 0;
@@ -97,48 +97,67 @@ impl WebUi {
         let _ = outp.write_all( result.as_bytes() );
 
         for fab in fabs.iter() {
-            outp.write_all( self.templates.reg_fab.replace_all(&*self.templates.status_fab_begin, &*fab.to_string()).as_bytes() );
+            let _ = outp.write_all( self.templates.reg_fab.replace_all(&*self.templates.status_fab_begin, &*fab.to_string()).as_bytes() );
             for printer in printers.values() {
                 if printer.fabid != *fab { continue; }
-                outp.write_all( self.templates.reg_printer.replace_all(
+                let _ = outp.write_all( self.templates.reg_printer.replace_all(
                                 &*self.templates.reg_status.replace_all(
                                     &*self.templates.status_printer,
                                     &*format!("{:#?}", printer.status)
                                 ), &*printer.id.to_string() ).as_bytes() );
             }
-            outp.write_all( self.templates.status_fab_end.as_bytes() );
+            let _ = outp.write_all( self.templates.status_fab_end.as_bytes() );
         }
     }
 
     fn get_print(&mut self, outp:&mut Write) {
-        outp.write_all( self.templates.print.as_bytes() );
+        let _ = outp.write_all( self.templates.print.as_bytes() );
     }
 
     fn get_mgmt(&mut self, outp:&mut Write) {
-        let mut printers_lock = self.printers.lock().unwrap();
-        let mut printers = printers_lock.deref();
+        let printers_lock = self.printers.lock().unwrap();
+        let printers = printers_lock.deref();
 
-        outp.write_all( self.templates.mgmt_begin.as_bytes() );
+        let _ = outp.write_all( self.templates.mgmt_begin.as_bytes() );
 
         for printer in printers.values() {
-            outp.write_all( &* self.templates.reg_status.replace_all(
+            let _ = outp.write_all( &* self.templates.reg_status.replace_all(
                 &* self.templates.reg_printer.replace_all(
                     &*self.templates.mgmt_printer,
                     &*printer.id.to_string()
                 ), &*format!("{:#?}", printer) ).as_bytes() );
         }
 
-        outp.write_all( self.templates.mgmt_end.as_bytes() );
+        let _ = outp.write_all( self.templates.mgmt_end.as_bytes() );
+    }
+
+    fn add_printer(&mut self, outp:&mut Write){
+        let reqtext = from_utf8(&self.buf[0 .. self.read_pos]).unwrap();
+        let v: Vec<&str> = reqtext.split(|c| c == '=' || c == '&').collect();
+
+        let mut printers_lock = self.printers.lock().unwrap();
+        let mut printers = printers_lock.deref_mut();
+
+        let printerid = get_new_printer_id();
+        let fabid = v[1].parse();
+        printers.insert( printerid, Printer::new( fabid.unwrap(), printerid, v[3].to_string() ) );
+
+        let _ = outp.write_all( format!("<div class=\"alert alert-success\">Printer added - ID:{}</div>", printerid).as_bytes() );
     }
 
     fn print(&mut self, outp:&mut Write){
         let reqtext = from_utf8(&self.buf[0 .. self.read_pos]).unwrap();
         let v: Vec<&str> = reqtext.split(|c| c == '=' || c == '&').collect();
+        //ToDo: replace with http://hyper.rs/hyper/master/hyper/struct.Url.html#method.query_pairs
 
         match printbp(self.printers.clone(), self.job_queue.clone(),
             v[1].parse().unwrap(), v[3].to_string()) {
-                Ok(_) => { outp.write(b"Printing..."); }
-                Err(err) => {}
+                Ok(_) => { 
+                    let _ = outp.write_all(b"<div class=\"alert alert-success\">Printing job</div>");
+                }
+                Err(err) => {
+                    let _ = outp.write_all( format!("<div class=\"alert alert-danger\">Printing failed: {}</div>", err).as_bytes() );
+                }
             }
     }
 }
@@ -164,6 +183,14 @@ impl Handler<HttpStream> for WebUi {
                     self.action = Action::GetPrint;
                     Next::write()
                 },
+                (&Post, "/mgmt/add") => {
+                    self.action = Action::AddPrinter;
+                    Next::read()
+                },
+                (&Post, "/mgmt/delete") => {
+                    self.action = Action::DelPrinter;
+                    Next::read()
+                },
                 _ => Next::write(), //InvalidRequest
             },
             _ => Next::write(), //InvalidRequest
@@ -176,13 +203,13 @@ impl Handler<HttpStream> for WebUi {
             self.buf.resize(newsize, 0); //If buffer is full, resize by 2KB
         }
         match transport.read(&mut self.buf[self.read_pos .. ]) {
-            Ok(0) => Next::write(),
-            Ok(n) => {
+            Ok(0) => Next::write(),//Finished reading, continue with response generation
+            Ok(n) => {//Read sth
                 self.read_pos += n;
-                Next::read_and_write()
+                Next::read_and_write() //re-invoke this method to continue reading, e.g. if buffer was too small
             }
             Err(e) => match e.kind() {
-                io::ErrorKind::WouldBlock => Next::read_and_write(),
+                io::ErrorKind::WouldBlock => Next::read_and_write(), //wait for more data
                 _ => {
                     println!("read error {:?}", e);
                     Next::end()
@@ -194,7 +221,7 @@ impl Handler<HttpStream> for WebUi {
     fn on_response(&mut self, res: &mut Response) -> Next {
 	    res.headers_mut().set( ContentType(
             mime::Mime( mime::TopLevel::Text, mime::SubLevel::Html,
-                vec![(mime::Attr::Charset, mime::Value::Utf8)] ) ) );
+                vec![(mime::Attr::Charset, mime::Value::Utf8)] ) ) ); //We ALWAYS respond in HTML
         match self.action {
             Action::InvalidRequest => {
                 res.set_status(StatusCode::BadRequest); //Generic 400 failure
@@ -223,8 +250,15 @@ impl Handler<HttpStream> for WebUi {
             },
             Action::Print => {;
                 self.print( transport );
+            },
+            Action::AddPrinter => {
+                self.add_printer( transport );
+                self.get_mgmt( transport );
+            },
+            Action::DelPrinter => {
+
             }
-            _ => unimplemented!()
+            //_ => unimplemented!()
         };
         let _ = transport.write_all( self.templates.page_end.as_bytes() );
         Next::end()
@@ -256,27 +290,27 @@ pub fn serve(printers: Arc<Mutex<HashMap<usize, Printer>>>,
         reg_status :    Regex::new(r"\{status\}").unwrap()
     };
     File::open("uitemplates/page_begin.html").expect("Cannot open template page_begin.html!")
-        .read_to_string( &mut temps.page_begin );
+        .read_to_string( &mut temps.page_begin ).unwrap();
     File::open("uitemplates/page_end.html").expect("Cannot open template page_end.html!")
-        .read_to_string( &mut temps.page_end );
+        .read_to_string( &mut temps.page_end ).unwrap();
     File::open("uitemplates/error.html").expect("Cannot open template error.html!")
-        .read_to_string( &mut temps.error );
+        .read_to_string( &mut temps.error ).unwrap();
     File::open("uitemplates/status.html").expect("Cannot open template status.html!")
-        .read_to_string( &mut temps.status );
+        .read_to_string( &mut temps.status ).unwrap();
     File::open("uitemplates/status_fab_begin.html").expect("Cannot open template status_fab_begin.html!")
-        .read_to_string( &mut temps.status_fab_begin );
+        .read_to_string( &mut temps.status_fab_begin ).unwrap();
     File::open("uitemplates/status_fab_end.html").expect("Cannot open template status_fab_end.html!")
-        .read_to_string( &mut temps.status_fab_end );
+        .read_to_string( &mut temps.status_fab_end ).unwrap();
     File::open("uitemplates/status_printer.html").expect("Cannot open template status_printer.html!")
-        .read_to_string( &mut temps.status_printer );
+        .read_to_string( &mut temps.status_printer ).unwrap();
     File::open("uitemplates/print.html").expect("Cannot open template print.html!")
-        .read_to_string( &mut temps.print );
+        .read_to_string( &mut temps.print ).unwrap();
     File::open("uitemplates/mgmt_begin.html").expect("Cannot open template mgmt_begin.html!")
-        .read_to_string( &mut temps.mgmt_begin );
+        .read_to_string( &mut temps.mgmt_begin ).unwrap();
     File::open("uitemplates/mgmt_end.html").expect("Cannot open template mgmt_end.html!")
-        .read_to_string( &mut temps.mgmt_end );
+        .read_to_string( &mut temps.mgmt_end ).unwrap();
     File::open("uitemplates/mgmt_printer.html").expect("Cannot open template mgmt_printer.html!")
-        .read_to_string( &mut temps.mgmt_printer );
+        .read_to_string( &mut temps.mgmt_printer ).unwrap();
 
 
     let temps = Arc::new(temps);

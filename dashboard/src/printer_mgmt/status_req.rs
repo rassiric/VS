@@ -93,7 +93,9 @@ pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
     for (id, printer) in printers.iter() {
         let (tx, rx) = mpsc::channel();
 
-        let url = Url::parse( &*format!("http://{}/status", printer.address) ).unwrap();
+        let url = format!("http://{}/status", printer.address);
+        println!("{}", url);
+        let url = Url::parse( &*url ).unwrap();
 
         if client.request( url, StatusReq::new(tx) ).is_err() {
             panic!("Sending status request failed!");

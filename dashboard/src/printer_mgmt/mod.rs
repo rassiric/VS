@@ -11,8 +11,7 @@ use self::printer::Status;
 use std::fs::File;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
-use std::borrow::BorrowMut;
+use std::ops::DerefMut;
 use std::path::Path;
 
 pub fn printbp(printers : Arc<Mutex<HashMap<usize, Printer>>>,
@@ -27,7 +26,7 @@ pub fn printbp(printers : Arc<Mutex<HashMap<usize, Printer>>>,
     let mut printers_lock = printers.lock().unwrap();
     let mut printers = printers_lock.deref_mut();
 
-    for (id, printer) in printers.iter_mut() {
+    for (_id, printer) in printers.iter_mut() {
         if printer.fabid != fab || printer.status.busy || printer.status.matempty {
             continue;
         }
