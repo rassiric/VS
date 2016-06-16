@@ -64,13 +64,24 @@ impl PrinterRest {
         //println!("{}",reqtext);
         let req : PrintReq = json::decode(reqtext).unwrap();
         let bp = req.blueprint.from_base64().unwrap();
+
         let printhead = self.get_free_printhead();
         if printhead.is_none() {
             return "{ \"success\": false, \"reason\": \"no printhead\" }".to_string();
         }
 
         let printhead = printhead.unwrap();
-        printhead.write().unwrap().blueprint = Some( Box::new( Cursor::new(bp) ) );
+        {
+            let mut printhead = printhead.write().unwrap();
+            printhead.blueprint = Some( Box::new( Cursor::new(bp) ) );
+            let mut magic = [0;4];
+            printhead.blueprint.as_mut().unwrap().read_exact(&mut magic).unwrap();
+            for i in 0..4 {
+                if magic[i] != b"RBAM"[i] {
+                    return "{ \"success\": false, \"reason\": \"invalid blueprint\" }".to_string();
+                }
+            }
+        }
 
         let printheadid = printhead.read().unwrap().id;
         match self.evloop_send.send( Token( printheadid ) ) { //Continue 3d print in internal eventloop

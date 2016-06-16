@@ -75,7 +75,10 @@ impl hyper::client::Handler<HttpStream> for PrintOrder {
         match transport.read(&mut self.buf[self.read_pos .. ]) {
             Ok(0) => {
                 let res_text = from_utf8(&self.buf[0 .. self.read_pos]).unwrap();
-                let res : ReqRes = json::decode(res_text).unwrap();
+                let res : ReqRes = match json::decode(res_text) {
+                    Ok(res) => res,
+                    Err(err) => ReqRes { success: false, reason: format!("{}", err) }
+                };
                 self.result_pipe.send(res).unwrap();
                 Next::end()
             }

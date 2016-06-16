@@ -118,8 +118,8 @@ impl Printerpart {
                 self.socket.write(&params).unwrap();
                 2//A line takes 2 material units
             }
-            _ => {
-                panic!("Unknown blueprint command");
+            c => {
+                panic!("Unknown blueprint command {:#x}", c);
             }
         };
 
@@ -152,7 +152,7 @@ impl Printerpart {
     pub fn notify_printhead(self : &mut Self, eventloop : &mut EventLoop<Server>, matcontainer : Option<&mut Printerpart>) {
         eventloop.clear_timeout(& self.timeoutid.as_mut().expect("Unexpected printhead message!"));
         self.timeoutid = None;
-        
+
         if self.benchmarkcnt > 0 {
             self.continue_benchmark(eventloop);
             return;
@@ -203,7 +203,6 @@ impl Printerpart {
         }
         self.socket.write(&[1, 57, 5, 0, 0, 0]).unwrap();//Arbitrary change level command
         self.timeoutid = Some( eventloop.timeout( self.id, Duration::from_millis(PRINT_TIMEOUT_MS) ).unwrap() );
-        return;   
+        return;
     }
 }
-
