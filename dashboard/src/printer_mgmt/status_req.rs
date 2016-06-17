@@ -69,7 +69,8 @@ impl hyper::client::Handler<HttpStream> for StatusReq {
                 io::ErrorKind::WouldBlock => read(),
                 _ => {
                     println!("read error {:?}", e);
-                    self.result_pipe.send(Status{busy: true, matempty: false}).unwrap();
+                    self.result_pipe.send(Status{busy: true, matempty: false,
+                        current_job: "error: cannot reach printer!".to_string()}).unwrap();
                     Next::end()
                 }
             }
@@ -78,34 +79,42 @@ impl hyper::client::Handler<HttpStream> for StatusReq {
 
     fn on_error(&mut self, err: hyper::Error) -> Next {
         println!("ERROR: {}", err);
-        self.result_pipe.send(Status{busy: true, matempty: false}).unwrap();
+        self.result_pipe.send(Status{busy: true, matempty: false,
+            current_job: "error: cannot reach printer!".to_string()}).unwrap();
         Next::remove()
     }
 }
 
 pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
-    let mut printers_lock = printers.lock().unwrap();
-    let mut printers = printers_lock.deref_mut();
-
     let mut results = HashMap::<usize, mpsc::Receiver<Status>>::new();
     let client = Client::new().unwrap();
 
-    for (id, printer) in printers.iter() {
-        let (tx, rx) = mpsc::channel();
+    {
+        let mut printers_lock = printers.lock().unwrap();
+        let mut printers = printers_lock.deref_mut();
 
-        let url = format!("http://{}/status", printer.address);
-        println!("{}", url);
-        let url = Url::parse( &*url ).unwrap();
+        for (id, printer) in printers.iter() {
+            let (tx, rx) = mpsc::channel();
 
-        if client.request( url, StatusReq::new(tx) ).is_err() {
-            panic!("Sending status request failed!");
+            let url = format!("http://{}/status", printer.address);
+            println!("{}", url);
+            let url = Url::parse( &*url ).unwrap();
+
+            if client.request( url, StatusReq::new(tx) ).is_err() {
+                panic!("Sending status request failed!");
+            }
+
+            results.insert( *id, rx );
         }
-
-        results.insert( *id, rx );
     }
 
     for (id, result) in &results {
-        printers.get_mut(id).unwrap().status = result.recv().unwrap();
+        let status = result.recv().unwrap();
+        {
+            let mut printers_lock = printers.lock().unwrap();
+            let mut printers = printers_lock.deref_mut();
+            printers.get_mut(id).unwrap().status = status;
+        } 
     }
 
     client.close();

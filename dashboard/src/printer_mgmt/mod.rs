@@ -31,7 +31,7 @@ pub fn printbp(printers : Arc<Mutex<HashMap<usize, Printer>>>,
             continue;
         }
         let mut bpfile = File::open(filename).unwrap();
-        printer.status = Status { busy: true, matempty: false };
+        printer.status = Status { busy: true, matempty: false, current_job: job_title.clone() };
 
         return print_order::printbp(&printer.address, &mut bpfile, job_title);
     }

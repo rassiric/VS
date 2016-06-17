@@ -13,11 +13,13 @@ use internals::{Printerpart, PrinterPartType};
 use rustc_serialize::json;
 use rustc_serialize::base64::FromBase64;
 use std::str::from_utf8;
+use std::borrow::Borrow;
 
 #[derive(RustcEncodable)]
 struct Status {
     busy: bool,
-    matempty: bool
+    matempty: bool,
+    current_job: String
 }
 
 #[derive(RustcDecodable)]
@@ -55,7 +57,8 @@ impl PrinterRest {
     fn get_status(&mut self) -> String {
         let status = Status {
             busy: self.get_free_printhead().is_none(), //Printer is busy if no printhead is available (so it also works if there is no Printhead connected yet)
-            matempty: !self.check_mat_status()
+            matempty: !self.check_mat_status(), 
+            current_job: self.get_job_title()
         };
         json::encode(&status).unwrap()
     }
@@ -104,6 +107,20 @@ impl PrinterRest {
             }
         }
         None
+    }
+
+    fn get_job_title(self : &Self) -> String {
+        let clients = self.internals.read().unwrap();
+        let mut result = Vec::<String>::new();
+        for cell in clients.values() {
+            let part = cell.read().unwrap();
+            if part.parttype != PrinterPartType::Printhead ||
+                   part.job_title.is_none() {
+                continue;
+            }
+            result.push(part.job_title.as_ref().unwrap().clone());
+        }
+        result.join(", ")
     }
 
     fn check_mat_status(&self) -> bool {
