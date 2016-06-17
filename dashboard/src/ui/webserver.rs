@@ -13,6 +13,7 @@ use printer_mgmt::{Printer, printbp};
 use regex::Regex;
 use std::str::from_utf8;
 use super::super::get_new_printer_id;
+use url::form_urlencoded;
 
 struct Templates {
     page_begin :  String,
@@ -39,7 +40,7 @@ struct Templates {
 
 pub struct WebUi {
     printers:      Arc<Mutex<HashMap<usize, Printer>>>,
-    job_queue :    Arc<Mutex<Vec<(usize, String)>>>,
+    job_queue :    Arc<Mutex<Vec<(usize, String, String)>>>,
     action:        Action,
     buf:           Vec<u8>,
     read_pos:      usize,
@@ -58,7 +59,7 @@ enum Action {
 
 impl WebUi {
     fn new(printers : Arc<Mutex<HashMap<usize, Printer>>>,
-        job_queue : Arc<Mutex<Vec<(usize, String)>>>,
+        job_queue : Arc<Mutex<Vec<(usize, String, String)>>>,
         templates: Arc<Templates>) -> Self{
         WebUi {
             printers:  printers,
@@ -146,12 +147,40 @@ impl WebUi {
     }
 
     fn print(&mut self, outp:&mut Write){
-        let reqtext = from_utf8(&self.buf[0 .. self.read_pos]).unwrap();
-        let v: Vec<&str> = reqtext.split(|c| c == '=' || c == '&').collect();
-        //ToDo: replace with http://hyper.rs/hyper/master/hyper/struct.Url.html#method.query_pairs
+        let mut params = form_urlencoded::parse(&self.buf[0 .. self.read_pos]);
+
+        let fab :usize = match params.find(|&(ref key,_)| key=="fab") {
+            Some((_, fabstr)) => match fabstr.parse() {
+                    Ok(fabint) => fabint,
+                    Err(_) => {
+                        let _ = outp.write_all( 
+                            b"<div class=\"alert alert-danger\">Printing failed: fab not numeric!</div>" );
+                        return;
+                    }
+                },
+            None => {
+                let _ = outp.write_all(
+                    b"<div class=\"alert alert-danger\">Printing failed: no fab specified!</div>" );
+                return;
+            }
+        };
+
+        let model = match params.find(|&(ref key,_)| key=="bp") {
+            Some((_, model)) => model.into_owned(),
+            None => {
+                let _ = outp.write_all(
+                    b"<div class=\"alert alert-danger\">Printing failed: no model specified!</div>" );
+                return;
+            }
+        };
+        
+        let title = match params.find(|&(ref key,_)| key=="jt") {
+            Some((_, title)) => title.into_owned(),
+            None => "".to_string()
+        };
 
         match printbp(self.printers.clone(), self.job_queue.clone(),
-            v[1].parse().unwrap(), v[3].to_string()) {
+            fab, model, &title) {
                 Ok(_) => { 
                     let _ = outp.write_all(b"<div class=\"alert alert-success\">Printing job</div>");
                 }
@@ -266,7 +295,7 @@ impl Handler<HttpStream> for WebUi {
 }
 
 pub fn serve(printers: Arc<Mutex<HashMap<usize, Printer>>>,
-    job_queue : Arc<Mutex<Vec<(usize, String)>>>) {
+    job_queue : Arc<Mutex<Vec<(usize, String, String)>>>) {
     let mut temps = Templates {
         page_begin: String::new(),
         page_end:   String::new(),

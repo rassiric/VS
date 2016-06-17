@@ -8,13 +8,13 @@ use std::sync::mpsc;
 use std::time::Duration;
 use hyper::Url;
 use rustc_serialize::json;
-//use printer_mgmt::printer::{Status, Printer};
 use std::str::from_utf8;
 use rustc_serialize::base64::{ToBase64, STANDARD};
 
 #[derive(RustcEncodable)]
 struct PrintReq {
-    blueprint: String
+    blueprint: String,
+    title: String
 }
 
 #[derive(RustcDecodable)]
@@ -31,12 +31,14 @@ pub struct PrintOrder {
 }
 
 impl PrintOrder {
-    pub fn new(result_pipe : mpsc::Sender<ReqRes>, bp : &mut Read ) -> Self {
+    pub fn new(result_pipe : mpsc::Sender<ReqRes>, bp : &mut Read, title:&String ) -> Self {
         let mut bpdata = vec![0;0];
         bp.read_to_end(&mut bpdata).expect("Cannot read blueprint!");
         PrintOrder {
             result_pipe : result_pipe,
-            req : PrintReq { blueprint : bpdata.to_base64(STANDARD) },
+            req : PrintReq {
+                blueprint : bpdata.to_base64(STANDARD),
+                title: title.clone() },
             buf : vec![0;64],
             read_pos : 0
         }
@@ -111,14 +113,14 @@ impl hyper::client::Handler<HttpStream> for PrintOrder {
     }
 }
 
-pub fn printbp(printer_addr : &String, blueprint : &mut Read) -> Result<(), String> {
+pub fn printbp(printer_addr : &String, blueprint : &mut Read, title : &String) -> Result<(), String> {
     let client = Client::new().unwrap();
     let (tx, rx) = mpsc::channel();
 
     let url = Url::parse( &*format!("http://{}/print", printer_addr) ).unwrap();
 
-    if client.request( url, PrintOrder::new(tx, blueprint) ).is_err() {
-        return Err( "Sending status request failed!".to_string() );
+    if client.request( url, PrintOrder::new(tx, blueprint, title) ).is_err() {
+        return Err( "Sending print request failed!".to_string() );
     }
 
     let response = rx.recv().unwrap();

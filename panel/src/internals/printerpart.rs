@@ -22,6 +22,7 @@ pub struct Printerpart {
     pub socket: TcpStream,
     pub parttype: PrinterPartType,
     pub blueprint: Option<Box<Read>>,
+    pub job_title: Option<String>,
     pub timeoutid: Option<Timeout>,
     pub matempty: bool,
     pub matid: i32,
@@ -55,6 +56,7 @@ impl Printerpart {
             socket: socket,
             parttype: ptype,
             blueprint: None,
+            job_title: None,
             timeoutid: None,
             matempty: false,
             matid: (buf[0] as i32) - 2,
@@ -72,6 +74,7 @@ impl Printerpart {
 
     pub fn load_blueprint(self : &mut Self) {
         self.blueprint = Some( Box::new( File::open("modell.3dbp").unwrap() ) );
+        self.job_title = Some( "local job".to_string() );
 
         //Read & check Magic number
         let mut magic = [0;4];
@@ -87,10 +90,16 @@ impl Printerpart {
     pub fn exec_instr(self : &mut Self, eventloop: &mut EventLoop<Server>, matsrc: Option<&mut Printerpart>) {
         let mut commandid = [0];
 
+        let job_title = match self.job_title.as_ref() {
+                Some(title)=>title.clone(),
+                None => "--".to_string()
+        };
+
         match self.blueprint.as_mut().expect("No blueprint in progess!").read_exact(&mut commandid) {
             Err(_) => {
-                println!("Blueprint finished!");
+                println!("Blueprint finished! Job: {}", job_title);
                 self.blueprint = None;
+                self.job_title = None;
                 return
             },
             _ => {}

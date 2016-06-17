@@ -22,7 +22,8 @@ struct Status {
 
 #[derive(RustcDecodable)]
 struct PrintReq {
-    blueprint: String
+    blueprint: String,
+    title: String
 }
 
 pub struct PrinterRest {
@@ -74,6 +75,8 @@ impl PrinterRest {
         {
             let mut printhead = printhead.write().unwrap();
             printhead.blueprint = Some( Box::new( Cursor::new(bp) ) );
+            printhead.job_title = Some( req.title.clone() );
+
             let mut magic = [0;4];
             printhead.blueprint.as_mut().unwrap().read_exact(&mut magic).unwrap();
             for i in 0..4 {
@@ -84,6 +87,7 @@ impl PrinterRest {
         }
 
         let printheadid = printhead.read().unwrap().id;
+        println!("Started printing job '{}' on printhead({})", &req.title, printheadid);
         match self.evloop_send.send( Token( printheadid ) ) { //Continue 3d print in internal eventloop
             Ok(_) => "{ \"success\": true, \"reason\": \"\"}".to_string(),
             Err(msg) => format!("{{\"success\": false, \"reason\": \"notify failed: {:?}\" }}", msg)

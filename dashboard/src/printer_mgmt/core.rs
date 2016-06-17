@@ -8,7 +8,7 @@ use super::Printer;
 
 pub struct Core {
     printers : Arc<Mutex<HashMap<usize, Printer>>>,
-    job_queue : Arc<Mutex<Vec<(usize, String)>>>
+    job_queue : Arc<Mutex<Vec<(usize, String, String)>>>
 }
 
 pub enum TimeoutType {
@@ -17,7 +17,7 @@ pub enum TimeoutType {
 
 impl Core {
     pub fn new(printers : Arc<Mutex<HashMap<usize, Printer>>>,
-            job_queue : Arc<Mutex<Vec<(usize, String)>>>) -> Self {
+            job_queue : Arc<Mutex<Vec<(usize, String, String)>>>) -> Self {
         Core {
             printers: printers,
             job_queue: job_queue
@@ -44,8 +44,8 @@ impl Handler for Core {
                     queue_copy = jobs.clone();
                     jobs.clear();
                 }
-                for (fab, job) in queue_copy {
-                    printbp(self.printers.clone(), self.job_queue.clone(), fab, job);
+                for (fab, job, title) in queue_copy {
+                    printbp(self.printers.clone(), self.job_queue.clone(), fab, job, &title);
                 }
             }
         }
