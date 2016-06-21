@@ -5,6 +5,8 @@ use std::time::Duration;
 use mio::{Handler, EventLoop};
 use printer_mgmt::printbp;
 use super::Printer;
+use super::super::BenchWatchStopTime;
+use super::super::time;
 
 pub struct Core {
     printers : Arc<Mutex<HashMap<usize, Printer>>>,
@@ -41,6 +43,14 @@ impl Handler for Core {
                 let queue_copy;
                 {
                     let mut jobs = self.job_queue.lock().unwrap();
+                    unsafe {
+                        if jobs.is_empty() && BenchWatchStopTime > 0 {
+
+                            println!("Benchmark finished, time: {}ms",
+                                ( (time::precise_time_ns() - BenchWatchStopTime) as f32) / 1_000_000.0);
+                                BenchWatchStopTime = 0;
+                        }
+                    }
                     queue_copy = jobs.clone();
                     jobs.clear();
                 }

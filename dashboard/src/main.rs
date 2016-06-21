@@ -2,6 +2,7 @@ extern crate hyper;
 extern crate mio;
 extern crate rustc_serialize;
 extern crate regex;
+extern crate time;
 #[macro_use]
 extern crate url;
 
@@ -22,6 +23,8 @@ use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 use mio::{EventLoop};
 
 static PRINTER_ID_COUNTER : AtomicUsize = ATOMIC_USIZE_INIT;
+
+static mut BenchWatchStopTime : u64 = 0;
 
 pub const POLL_TIME_MS : u64 = 2500;
 

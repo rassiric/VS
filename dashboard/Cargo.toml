@@ -9,3 +9,4 @@ hyper = { git = "https://github.com/hyperium/hyper" }
 rustc-serialize = "0.3.*"
 regex = "0.1"
 url = "1.1.*"
+time = "0.1"

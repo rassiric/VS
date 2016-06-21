@@ -14,6 +14,8 @@ use regex::Regex;
 use std::str::from_utf8;
 use super::super::get_new_printer_id;
 use url::form_urlencoded;
+use super::super::BenchWatchStopTime;
+use super::super::time;
 
 struct Templates {
     page_begin :  String,
@@ -54,7 +56,8 @@ enum Action {
     GetMgmt,
     Print,
     AddPrinter,
-    DelPrinter
+    DelPrinter,
+    Benchmark
 }
 
 impl WebUi {
@@ -248,6 +251,23 @@ impl WebUi {
                 }
             }
     }
+
+    fn benchmark(&mut self, outp:&mut Write){
+
+        unsafe{BenchWatchStopTime = time::precise_time_ns();}
+
+        for _ in 0..50{
+            match printbp(self.printers.clone(), self.job_queue.clone(),
+                0, "bm".to_string(), &"benchmark".to_string()) {
+                    Ok(_) => {
+                        let _ = outp.write_all(b"<div class=\"alert alert-success\">Printing job</div>");
+                    }
+                    Err(err) => {
+                        let _ = outp.write_all( format!("<div class=\"alert alert-danger\">Printing failed: {}</div>", err).as_bytes() );
+                    }
+                }
+        }
+    }
 }
 
 impl Handler<HttpStream> for WebUi {
@@ -261,6 +281,10 @@ impl Handler<HttpStream> for WebUi {
                 },
                 (&Get, "/mgmt") => {
                     self.action = Action::GetMgmt;
+                    Next::write()
+                },
+                (&Get, "/bm") => {
+                    self.action = Action::Benchmark;
                     Next::write()
                 },
                 (&Post, "/print") => {
@@ -335,6 +359,9 @@ impl Handler<HttpStream> for WebUi {
             },
             Action::GetMgmt => {
                 self.get_mgmt( transport );
+            },
+            Action::Benchmark => {
+                self.benchmark( transport );
             },
             Action::Print => {;
                 self.print( transport );
