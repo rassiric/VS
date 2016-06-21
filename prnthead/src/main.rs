@@ -81,14 +81,8 @@ fn main() {
             Ok(_) => {},
         };
 
-        if rndrange.ind_sample(&mut rng) <= 5 { //Fail with 5% probability
-            stream.write(&[255]).unwrap(); //Report failure
-            println!(" - SimErr!");
-            continue;
-        } else { // Report sucess
-            stream.write(&[1]).unwrap();
-            println!(" - Done");
-        }
+        stream.write(&[1]).unwrap();
+        println!(" - Done");
     }
 
 }

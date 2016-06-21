@@ -133,17 +133,76 @@ impl WebUi {
     }
 
     fn add_printer(&mut self, outp:&mut Write){
-        let reqtext = from_utf8(&self.buf[0 .. self.read_pos]).unwrap();
-        let v: Vec<&str> = reqtext.split(|c| c == '=' || c == '&').collect();
+        let mut reqtext = form_urlencoded::parse(&self.buf[0 .. self.read_pos]);
+
+        let fab :usize = match reqtext.find(|&(ref key,_)| key=="fab") {
+            Some((_, fabstr)) => match fabstr.parse() {
+                    Ok(fabint) => fabint,
+                    Err(_) => {
+                        let _ = outp.write_all(
+                            b"<div class=\"alert alert-danger\">Adding printer failed: fab not numeric!</div>" );
+                        return;
+                    }
+                },
+            None => {
+                let _ = outp.write_all(
+                    b"<div class=\"alert alert-danger\">Adding printer failed: no fab specified!</div>" );
+                return;
+            }
+        };
+
+        let ip = match reqtext.find(|&(ref key,_)| key=="ip") {
+            Some((_, ip)) => ip.into_owned(),
+            None => {
+                let _ = outp.write_all(
+                    b"<div class=\"alert alert-danger\">Adding printer failed: no ip specified!</div>" );
+                return;
+            }
+        };
+
+        let mut printers_lock = self.printers.lock().unwrap();
+        let mut printers = printers_lock.deref_mut();
+        let printerid = get_new_printer_id();
+
+        printers.insert( printerid, Printer::new( fab, printerid, ip ) );
+
+        let _ = outp.write_all( format!("<div class=\"alert alert-success\">Printer added - ID:{}</div>", printerid).as_bytes() );
+    }
+
+    fn del_printer(&mut self, outp:&mut Write){
+
+        let mut reqtext = form_urlencoded::parse(&self.buf[0 .. self.read_pos]);
+
+        let printer_id :usize = match reqtext.find(|&(ref key,_)| key=="id") {
+            Some((_, fabstr)) => match fabstr.parse() {
+                    Ok(fabint) => fabint,
+                    Err(_) => {
+                        let _ = outp.write_all(
+                            b"<div class=\"alert alert-danger\">Delete failed: id not numeric!</div>" );
+                        return;
+                    }
+                },
+            None => {
+                let _ = outp.write_all(
+                    b"<div class=\"alert alert-danger\">Delete failed: no id!</div>" );
+                return;
+            }
+        };
 
         let mut printers_lock = self.printers.lock().unwrap();
         let mut printers = printers_lock.deref_mut();
 
-        let printerid = get_new_printer_id();
-        let fabid = v[1].parse();
-        printers.insert( printerid, Printer::new( fabid.unwrap(), printerid, v[3].to_string() ) );
-
-        let _ = outp.write_all( format!("<div class=\"alert alert-success\">Printer added - ID:{}</div>", printerid).as_bytes() );
+        match printers.remove(&printer_id){
+            Some(_) => {
+                let _ = outp.write_all(
+                    b"<div class=\"alert alert-success\">Printer deleted!</div>" );
+                },
+            None => {
+                let _ = outp.write_all(
+                    b"<div class=\"alert alert-warn\">Delete failed: printer not found!</div>" );
+                return;
+            }
+        }
     }
 
     fn print(&mut self, outp:&mut Write){
@@ -153,7 +212,7 @@ impl WebUi {
             Some((_, fabstr)) => match fabstr.parse() {
                     Ok(fabint) => fabint,
                     Err(_) => {
-                        let _ = outp.write_all( 
+                        let _ = outp.write_all(
                             b"<div class=\"alert alert-danger\">Printing failed: fab not numeric!</div>" );
                         return;
                     }
@@ -173,7 +232,7 @@ impl WebUi {
                 return;
             }
         };
-        
+
         let title = match params.find(|&(ref key,_)| key=="jt") {
             Some((_, title)) => title.into_owned(),
             None => "".to_string()
@@ -181,7 +240,7 @@ impl WebUi {
 
         match printbp(self.printers.clone(), self.job_queue.clone(),
             fab, model, &title) {
-                Ok(_) => { 
+                Ok(_) => {
                     let _ = outp.write_all(b"<div class=\"alert alert-success\">Printing job</div>");
                 }
                 Err(err) => {
@@ -285,7 +344,8 @@ impl Handler<HttpStream> for WebUi {
                 self.get_mgmt( transport );
             },
             Action::DelPrinter => {
-
+                self.del_printer( transport );
+                self.get_mgmt( transport );
             }
             //_ => unimplemented!()
         };

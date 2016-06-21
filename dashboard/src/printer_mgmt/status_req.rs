@@ -87,10 +87,10 @@ impl hyper::client::Handler<HttpStream> for StatusReq {
 
 pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
     let mut results = HashMap::<usize, mpsc::Receiver<Status>>::new();
-    let client = Client::new().unwrap();
+    let client = Client::new().expect("Cannot instantiate new Client!");
 
     {
-        let mut printers_lock = printers.lock().unwrap();
+        let mut printers_lock = printers.lock().expect("Cannot lock printers!");
         let mut printers = printers_lock.deref_mut();
 
         for (id, printer) in printers.iter() {
@@ -98,7 +98,7 @@ pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
 
             let url = format!("http://{}/status", printer.address);
             println!("{}", url);
-            let url = Url::parse( &*url ).unwrap();
+            let url = Url::parse( &*url ).expect("Cannot parse URL!");
 
             if client.request( url, StatusReq::new(tx) ).is_err() {
                 panic!("Sending status request failed!");
@@ -113,8 +113,12 @@ pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
         {
             let mut printers_lock = printers.lock().unwrap();
             let mut printers = printers_lock.deref_mut();
-            printers.get_mut(id).unwrap().status = status;
-        } 
+            let mut printer = printers.get_mut(id);
+            if printer.is_none() {
+                continue;
+            }
+            printer.unwrap().status = status;
+        }
     }
 
     client.close();
