@@ -11,7 +11,6 @@ use std::fs::File;
 use std::ops::{Deref, DerefMut};
 use printer_mgmt::{Printer, printbp};
 use regex::Regex;
-use std::str::from_utf8;
 use super::super::get_new_printer_id;
 use url::form_urlencoded;
 use super::super::BenchWatchStopTime;

@@ -55,7 +55,7 @@ impl Handler for Core {
                     jobs.clear();
                 }
                 for (fab, job, title) in queue_copy {
-                    printbp(self.printers.clone(), self.job_queue.clone(), fab, job, &title);
+                    let _ = printbp(self.printers.clone(), self.job_queue.clone(), fab, job, &title);
                 }
             }
         }

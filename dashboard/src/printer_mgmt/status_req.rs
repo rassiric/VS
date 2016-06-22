@@ -4,7 +4,7 @@ use hyper::client::{Client, Request, Response, DefaultTransport as HttpStream};
 use hyper::header::Connection;
 use std::io;
 use std::io::Read;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, Arc};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -90,8 +90,8 @@ pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
     let client = Client::new().expect("Cannot instantiate new Client!");
 
     {
-        let mut printers_lock = printers.lock().expect("Cannot lock printers!");
-        let mut printers = printers_lock.deref_mut();
+        let printers_lock = printers.lock().expect("Cannot lock printers!");
+        let printers = printers_lock.deref();
 
         for (id, printer) in printers.iter() {
             let (tx, rx) = mpsc::channel();
@@ -112,8 +112,8 @@ pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
         let status = result.recv().unwrap();
         {
             let mut printers_lock = printers.lock().unwrap();
-            let mut printers = printers_lock.deref_mut();
-            let mut printer = printers.get_mut(id);
+            let printers = printers_lock.deref_mut();
+            let printer = printers.get_mut(id);
             if printer.is_none() {
                 continue;
             }

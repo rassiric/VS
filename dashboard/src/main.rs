@@ -5,9 +5,11 @@ extern crate regex;
 extern crate time;
 #[macro_use]
 extern crate url;
+extern crate mosquitto;
 
 mod printer_mgmt;
 mod ui;
+mod mqtt;
 
 use printer_mgmt::core;
 use printer_mgmt::{Printer, Core};
