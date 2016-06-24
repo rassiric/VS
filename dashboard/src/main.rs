@@ -5,11 +5,11 @@ extern crate regex;
 extern crate time;
 #[macro_use]
 extern crate url;
-extern crate mosquitto;
+extern crate mqtt;
 
 mod printer_mgmt;
 mod ui;
-mod mqtt;
+mod msgif;
 
 use printer_mgmt::core;
 use printer_mgmt::{Printer, Core};
@@ -65,9 +65,15 @@ fn main() {
     let printers : Arc<Mutex<HashMap<usize, Printer>>> = Arc::new( Mutex::new( HashMap::new() ) );
     load_configured_printers( printers.clone() );
 
+    let broker_addr = "127.0.0.1";
+
     let ui_printers = printers.clone();
     let ui_queue = jobqueue.clone();
     let _uithread = thread::spawn( move || ui::serve( ui_printers, ui_queue ) );
+
+    let mqtt_printers = printers.clone();
+    let mqtt_queue = jobqueue.clone();
+    let _mqttthread = thread::spawn( move || msgif::work( mqtt_printers, mqtt_queue, broker_addr ) );
 
     printer_mgmt::update_status( printers.clone() );
 

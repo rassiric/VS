@@ -6,7 +6,7 @@ authors = ["Ramiz Bahrami <ramesbahrami@gmail.com>", "Adrian Müller <adrian@mue
 [dependencies]
 mio = { git = "https://github.com/carllerche/mio" }
 hyper = { git = "https://github.com/hyperium/hyper" }
-mosquitto = { git = "https://github.com/kteza1/mosquitto-rs" }
+mqtt = { git = "https://github.com/cubehub/rust-mqtt" }
 rustc-serialize = "0.3.*"
 regex = "0.1"
 url = "1.1.*"

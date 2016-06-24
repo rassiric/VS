@@ -36,10 +36,7 @@ impl Handler for Core {
             TimeoutType::PollStatus => {
                 super::update_status( self.printers.clone() );
                 eventloop.timeout( TimeoutType::PollStatus, Duration::from_millis(super::super::POLL_TIME_MS) ).unwrap();
-                {
-                    let p = self.printers.lock().unwrap();
-                    println!( "Poll result:\n{:#?}", p.deref() );
-                }
+
                 let queue_copy;
                 {
                     let mut jobs = self.job_queue.lock().unwrap();

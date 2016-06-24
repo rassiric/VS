@@ -78,7 +78,7 @@ impl hyper::client::Handler<HttpStream> for StatusReq {
     }
 
     fn on_error(&mut self, err: hyper::Error) -> Next {
-        println!("ERROR: {}", err);
+        //println!("ERROR: {}", err);
         self.result_pipe.send(Status{busy: true, matempty: false,
             current_job: "error: cannot reach printer!".to_string()}).unwrap();
         Next::remove()
@@ -97,7 +97,6 @@ pub fn update_status(printers : Arc<Mutex<HashMap<usize, Printer>>>) {
             let (tx, rx) = mpsc::channel();
 
             let url = format!("http://{}/status", printer.address);
-            println!("{}", url);
             let url = Url::parse( &*url ).expect("Cannot parse URL!");
 
             if client.request( url, StatusReq::new(tx) ).is_err() {
