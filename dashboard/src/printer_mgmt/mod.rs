@@ -16,7 +16,7 @@ use std::path::Path;
 
 pub fn printbp(printers : Arc<Mutex<HashMap<usize, Printer>>>,
     job_queue : Arc<Mutex<Vec<(usize, String, String)>>>,
-    fab : usize, bpname : String, job_title: &String) -> Result<(), String> {
+    fab : usize, bpname : String, job_title: &String) -> Result<String, String> {
     let filename = format!("blueprints/{}.3dbp", bpname);
 
     if ! Path::new(&filename).exists() {
@@ -33,8 +33,9 @@ pub fn printbp(printers : Arc<Mutex<HashMap<usize, Printer>>>,
         let mut bpfile = File::open(filename).unwrap();
         printer.status = Status { busy: true, matempty: false, current_job: job_title.clone() };
 
-        return print_order::printbp(&printer.address, &mut bpfile, job_title);
+        return print_order::printbp(&printer.address, &mut bpfile, job_title).and(
+            Ok(format!("Job '{}' printing on printer {}", job_title, printer.id)));
     }
     job_queue.lock().unwrap().deref_mut().push(( fab,bpname.to_string(),job_title.clone() ));
-    Ok(())
+    Ok(format!("Job '{}' queued", job_title))
 }

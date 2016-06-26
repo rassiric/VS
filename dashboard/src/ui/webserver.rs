@@ -242,8 +242,8 @@ impl WebUi {
 
         match printbp(self.printers.clone(), self.job_queue.clone(),
             fab, model, &title) {
-                Ok(_) => {
-                    let _ = outp.write_all(b"<div class=\"alert alert-success\">Printing job</div>");
+                Ok(msg) => {
+                    let _ = outp.write_all( format!("<div class=\"alert alert-success\">Printing job: {}</div>", msg).as_bytes() );
                 }
                 Err(err) => {
                     let _ = outp.write_all( format!("<div class=\"alert alert-danger\">Printing failed: {}</div>", err).as_bytes() );
@@ -270,7 +270,7 @@ impl WebUi {
 }
 
 impl Handler<HttpStream> for WebUi {
-    fn on_request(&mut self, req: Request) -> Next{
+    fn on_request(&mut self, req: Request<HttpStream>) -> Next{
         match *req.uri() {
             RequestUri::AbsolutePath(ref path) =>
             match (req.method(), &path[..]) {

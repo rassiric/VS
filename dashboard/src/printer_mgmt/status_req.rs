@@ -77,8 +77,8 @@ impl hyper::client::Handler<HttpStream> for StatusReq {
         }
     }
 
-    fn on_error(&mut self, err: hyper::Error) -> Next {
-        //println!("ERROR: {}", err);
+    fn on_error(&mut self, _err: hyper::Error) -> Next {
+        //println!("ERROR: {}", _err);
         self.result_pipe.send(Status{busy: true, matempty: false,
             current_job: "error: cannot reach printer!".to_string()}).unwrap();
         Next::remove()

@@ -1,6 +1,5 @@
 use std::sync::{Mutex, Arc};
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::time::Duration;
 use mio::{Handler, EventLoop};
 use printer_mgmt::printbp;
