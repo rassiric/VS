@@ -99,7 +99,7 @@ impl Printerpart {
             Err(_) => {
                 println!("Blueprint finished! Job: {}", job_title);
                 self.blueprint = None;
-                self.job_title = None;
+                self.job_title = Some(format!("Done [last: {}]", self.job_title.as_ref().unwrap()));
                 return
             },
             _ => {}

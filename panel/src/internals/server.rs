@@ -8,6 +8,7 @@ use std::ops::DerefMut;
 use std::time::Duration;
 use mio::tcp::TcpListener;
 use mio::{Token, Timeout, EventLoop, EventSet, PollOpt, Handler};
+use mqtt::async::{PersistenceType, Qos, AsyncClient, AsyncConnectOptions};
 
 use super::Printerpart;
 use super::PrinterPartType;
@@ -21,7 +22,8 @@ pub struct Server {
     pub socket: TcpListener,
     pub clients: Arc<RwLock<HashMap<Token, Arc<RwLock<Printerpart>>>>>,
     pub tokencounter: usize,
-    pub continuedelay: Option<Timeout>
+    pub continuedelay: Option<Timeout>,
+    pub msgclient: AsyncClient
 }
 
 impl Server {
@@ -169,6 +171,11 @@ impl Handler for Server {
                                 client.write().unwrap().notify_printhead( eventloop, None );
                             }
                         }
+                        if client.read().unwrap().blueprint.is_none() {
+                            self.msgclient.send(format!("{}",
+                                &client.read().unwrap().job_title.as_ref().unwrap_or(&"-".to_string())).as_bytes(),
+                                "printInfo", Qos::OnceAndOneOnly, false);
+                        }
                     },
                     PrinterPartType::Material  => { client.write().unwrap().notify_material(eventloop, &mut self.continuedelay);  }
                 };
@@ -194,6 +201,10 @@ impl Handler for Server {
                                     cell.write().unwrap().exec_instr( eventloop, None );
                                 }
                             }
+                            if cell.read().unwrap().blueprint.is_none() {
+                                self.msgclient.send(format!("{}", &cell.read().unwrap().job_title.as_ref().unwrap()).as_bytes(),
+                                    "printInfo", Qos::OnceAndOneOnly, false);
+                            }
                         }
                     }
                 }
@@ -215,6 +226,8 @@ impl Handler for Server {
         //send first command and implement timeout etc.
         let clients = self.clients.read().unwrap();
         let printhead = clients.get(&msg).unwrap();
+        self.msgclient.send(format!("Started printing {}", &printhead.read().unwrap().job_title.as_ref().unwrap()).as_bytes(),
+            "printInfo", Qos::OnceAndOneOnly, false);
         printhead.write().unwrap().exec_instr( eventloop, None );
             //First instruction cannot use a Material, since it could not possibly have selected one
     }

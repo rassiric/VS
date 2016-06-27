@@ -6,5 +6,6 @@ authors = ["Ramiz Bahrami <ramesbahrami@gmail.com>", "Adrian Müller <adrian@mue
 [dependencies]
 mio = { git = "https://github.com/carllerche/mio" }
 hyper = { git = "https://github.com/hyperium/hyper" }
+mqtt = { git = "https://github.com/cubehub/rust-mqtt" }
 time = "0.1"
 rustc-serialize = "0.3.*"
