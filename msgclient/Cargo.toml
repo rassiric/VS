@@ -1,0 +1,8 @@
+[package]
+name = "msgclient"
+version = "0.1.0"
+authors = ["Ramiz Bahrami <ramesbahrami@gmail.com>", "Adrian Müller <adrian@mueller-lindenfels.de>"]
+
+[dependencies]
+mqtt = { git = "https://github.com/cubehub/rust-mqtt" }
+time = "0.1"
